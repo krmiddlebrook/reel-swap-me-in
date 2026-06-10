@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reel Replicate Me</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:#0e0d12; color:#f3f1ec; font:16px/1.5 -apple-system, "Segoe UI", sans-serif; }
+  main { width:min(560px, 92vw); padding:40px 0; text-align:center; }
+  h1 { font-size:1.7rem; margin:0 0 4px; letter-spacing:-.02em; }
+  p.sub { color:#9a96a8; margin:0 0 28px; }
+  form { display:flex; gap:8px; }
+  input { flex:1; padding:13px 16px; border-radius:12px; border:1px solid #2c2a36;
+          background:#17151e; color:inherit; font-size:15px; outline:none; }
+  input:focus { border-color:#7c6cf2; }
+  button { padding:13px 22px; border:0; border-radius:12px; background:#7c6cf2; color:#fff;
+           font-size:15px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  #status { margin-top:26px; min-height:24px; color:#c9c5d8; }
+  #status.error { color:#ff7b7b; }
+  .spinner { display:inline-block; width:14px; height:14px; margin-right:8px; vertical-align:-2px;
+             border:2px solid #7c6cf2; border-top-color:transparent; border-radius:50%;
+             animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  video { margin-top:24px; width:100%; max-height:70vh; border-radius:16px; background:#000; }
+  a.dl { display:inline-block; margin-top:12px; color:#a99cff; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Reel Replicate Me</h1>
+  <p class="sub">Paste an Instagram Reel URL — get it back starring you.</p>
+  <form id="f">
+    <input id="url" type="url" placeholder="https://www.instagram.com/reel/…" required>
+    <button id="go" type="submit">Replicate</button>
+  </form>
+  <div id="status"></div>
+  <div id="result"></div>
+</main>
+<script>
+const f = document.getElementById("f"), urlEl = document.getElementById("url"),
+      go = document.getElementById("go"), statusEl = document.getElementById("status"),
+      resultEl = document.getElementById("result");
+let timer = null;
+
+function setStatus(text, { spin = false, error = false } = {}) {
+  statusEl.className = error ? "error" : "";
+  statusEl.innerHTML = (spin ? '<span class="spinner"></span>' : "") + text;
+}
+
+async function poll(jobId) {
+  try {
+    const r = await fetch(`/api/jobs/${jobId}`);
+    const job = await r.json();
+    if (job.status === "done") {
+      clearInterval(timer); go.disabled = false;
+      setStatus("Done — here's you:");
+      resultEl.innerHTML =
+        `<video controls autoplay loop src="${job.resultUrl}"></video>` +
+        `<a class="dl" href="${job.resultUrl}" download>Download video</a>`;
+    } else if (job.status === "error") {
+      clearInterval(timer); go.disabled = false;
+      setStatus(job.error || "Something went wrong.", { error: true });
+    } else {
+      setStatus(job.detail || "Working…", { spin: true });
+    }
+  } catch { /* transient — keep polling */ }
+}
+
+f.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  resultEl.innerHTML = ""; go.disabled = true;
+  setStatus("Starting…", { spin: true });
+  try {
+    const r = await fetch("/api/replicate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reelUrl: urlEl.value }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || "Request failed");
+    timer = setInterval(() => poll(data.jobId), 2000);
+  } catch (err) {
+    go.disabled = false;
+    setStatus(err.message, { error: true });
+  }
+});
+</script>
+</body>
+</html>
