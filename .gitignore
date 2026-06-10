@@ -1,0 +1,6 @@
+bin/
+work/
+output/
+assets/me.jpg
+__pycache__/
+*.pyc
