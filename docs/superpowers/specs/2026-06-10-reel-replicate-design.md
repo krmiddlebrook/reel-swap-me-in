@@ -17,59 +17,66 @@ Claude (via the Claude Agent SDK) orchestrates the **Higgsfield MCP server**
 video with a character taken from a reference image, preserving the original
 motion, pacing, and framing. Constraint: source clips must be **5–15 seconds**.
 
+## Stack decision (driven by this machine's environment)
+
+- System Node is v14 (Agent SDK needs 18+), but the **native `claude` CLI 2.1.170
+  is installed** and shares the user's Claude login and MCP OAuth token store.
+  → The swap step shells out to **headless `claude -p`** instead of the Agent SDK.
+- No ffmpeg/yt-dlp installed, and the build sandbox can only reach
+  github.com/npm/pypi. → `setup.sh` vendors **static binaries** of `yt-dlp`
+  (yt-dlp/yt-dlp releases) and `ffmpeg` (eugeneware/ffmpeg-static releases) into
+  `bin/`. Reel duration comes from yt-dlp metadata, so ffprobe isn't needed.
+- Installed Python is 3.8 (anaconda). → The server uses **Python stdlib only**
+  (`http.server.ThreadingHTTPServer`), zero pip dependencies.
+
 ## Architecture
 
 ```
 Browser — public/index.html (paste URL → progress → result video)
    │ POST /api/replicate {reelUrl} → {jobId}
-   │ GET  /api/jobs/:jobId          (poll progress)
+   │ GET  /api/jobs/<jobId>         (poll progress)
    ▼
-server.js — Express, in-memory job store, serves /output videos
+app/server.py — stdlib HTTP server, in-memory job store, serves /output videos
    ▼
-pipeline/run.js — orchestrates steps, reports progress
-   ├─ 1. download.js  yt-dlp: reel URL → work/<job>/reel.mp4
-   ├─ 2. prepare.js   ffprobe/ffmpeg: validate ≥5s, trim to ≤15s
-   ├─ 3. swap.js      Claude Agent SDK + Higgsfield MCP:
-   │                  upload reel + assets/me.jpg, run character-swap
-   │                  generation, poll until done → result URL
-   └─ 4. save         download result → output/<job>.mp4
+app/pipeline.py — orchestrates steps in a worker thread, reports progress
+   ├─ 1. download   bin/yt-dlp: reel URL → work/<job>/reel.mp4 (+ duration)
+   ├─ 2. prepare    bin/ffmpeg: validate ≥5s, trim to ≤15s
+   ├─ 3. swap       app/claude_swap.py: headless `claude -p` with the
+   │                Higgsfield MCP server (user-scope, OAuth done once) —
+   │                agent uploads reel + assets/me.jpg, runs the character-swap
+   │                generation (Recast / WAN Animate Replace), polls until done,
+   │                returns strict JSON {"videoUrl": ...}
+   └─ 4. save       download result URL → output/<job>.mp4
 ```
 
-Also runnable headless: `node replicate.js <reel-url>` (same pipeline, no server).
+Also runnable headless: `python3 replicate.py <reel-url>` (same pipeline, no server).
 
 ## Components
 
-- **`server.js`** — Express app. `POST /api/replicate` validates input and starts a
-  job; `GET /api/jobs/:id` returns `{status, step, detail, resultUrl?, error?}`.
-  Serves `public/` and `output/`.
-- **`pipeline/download.js`** — validates the URL is an Instagram reel/post URL,
-  shells out to `yt-dlp` to fetch the MP4. Public reels only.
-- **`pipeline/prepare.js`** — `ffprobe` for duration; reject <5s with a clear
-  message; trim to first 15s when longer (`ffmpeg -t 15`, stream copy fallback to
-  re-encode).
-- **`pipeline/swap.js`** — runs a Claude agent (Agent SDK `query()`) connected to
-  the Higgsfield MCP server. The agent's job: upload the prepared video and the
-  user photo via Higgsfield tools, pick the character-swap model from the live
-  catalog (WAN Animate Replace / Recast), submit the generation, wait for
-  completion, and return strict JSON `{"videoUrl": "..."}`. Tool access is
-  restricted to Higgsfield MCP tools (+ `higgsfield` CLI via Bash as fallback if
-  the MCP upload path requires it).
-- **`pipeline/run.js`** — sequences the steps, maps low-level failures to
-  user-friendly errors, emits progress callbacks.
+- **`app/server.py`** — stdlib HTTP server. `POST /api/replicate` validates input
+  and starts a job thread; `GET /api/jobs/<id>` returns
+  `{status, step, detail, resultUrl?, error?}`. Serves `public/` and `output/`.
+- **`app/pipeline.py`** — URL validation (pure function), yt-dlp download wrapper,
+  duration check (<5s rejected, >15s trimmed via ffmpeg), step sequencing with
+  progress callback, friendly error mapping.
+- **`app/claude_swap.py`** — builds the agent prompt, runs
+  `claude -p --output-format json --allowedTools "mcp__higgsfield,mcp__higgsfield__*"`,
+  parses the strict-JSON result (`{"videoUrl"}` or `{"error"}`), 20-minute cap.
 - **`public/index.html`** — single page, no build step: URL input, Go button,
-  step-by-step progress, side-by-side original vs. result `<video>` players.
+  step-by-step progress, result `<video>` player.
 - **`assets/me.jpg`** — the stored photo of the user (drop-in, gitignored).
+- **`setup.sh`** — fetches the static binaries, registers the Higgsfield MCP
+  server at user scope, prints the one remaining manual step (OAuth via `/mcp`).
 
 ## Auth & prerequisites (one-time, in README)
 
-1. `npm install` (Express + `@anthropic-ai/claude-agent-sdk`).
-2. `yt-dlp` and `ffmpeg` installed (`brew install yt-dlp ffmpeg`).
-3. Higgsfield MCP connected & authorized once:
-   `claude mcp add --transport http higgsfield https://mcp.higgsfield.ai/mcp`,
-   then run `/mcp` inside `claude` to complete the OAuth login. The Agent SDK
-   reuses this stored auth. Requires a Higgsfield account with credits.
-4. Claude Code auth (the Agent SDK uses it) — already present on this machine.
-5. A clear, front-facing photo saved as `assets/me.jpg`.
+1. `./setup.sh` — vendors `bin/yt-dlp` + `bin/ffmpeg`, runs
+   `claude mcp add --transport http --scope user higgsfield https://mcp.higgsfield.ai/mcp`.
+2. Authorize once: run `claude`, type `/mcp`, complete the Higgsfield OAuth
+   browser login. The token lands in the Claude Code credential store and is
+   reused by headless `claude -p` runs. Requires a Higgsfield account with credits.
+3. Claude Code login — already present on this machine.
+4. A clear, front-facing photo saved as `assets/me.jpg`.
 
 ## Error handling
 
@@ -85,11 +92,11 @@ Every failure surfaces as a one-line human message in the UI:
 
 ## Testing
 
-- Unit tests (node:test): URL validation and trim/duration decision logic (pure
-  functions, no network).
+- Unit tests (stdlib `unittest`): URL validation, trim/duration decision logic,
+  claude output JSON parsing (pure functions, no network).
 - Integration (manual, scripted): download+prepare against a real public reel.
 - End-to-end: requires the user's Higgsfield OAuth + credits; run once after
-  setup via `node replicate.js <url>`.
+  setup via `python3 replicate.py <url>`.
 
 ## Consent & content notes
 
