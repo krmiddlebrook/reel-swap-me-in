@@ -114,15 +114,17 @@ def providers():
     return ["cpu"]
 
 
-def build_command(sources, target, output, provider):
+def build_command(sources, target, output, provider, settings=None):
+    settings = settings or load_settings()
     cmd = [FF_PYTHON, FF_SCRIPT, "headless-run", "-s"]
     cmd += list(sources)
     cmd += [
         "-t", target, "-o", output,
         "--processors", "face_swapper", "face_enhancer",
-        "--face-swapper-pixel-boost", "512x512",
-        "--face-enhancer-model", "gfpgan_1.4",
-        "--face-enhancer-blend", "80",
+        "--face-swapper-model", settings["swapper_model"],
+        "--face-swapper-pixel-boost", settings["pixel_boost"],
+        "--face-enhancer-model", settings["enhancer_model"],
+        "--face-enhancer-blend", str(settings["enhancer_blend"]),
         "--face-selector-mode", "one",
         "--face-selector-order", "large-small",
         "--output-audio-encoder", "aac",
@@ -131,7 +133,7 @@ def build_command(sources, target, output, provider):
     return cmd
 
 
-def restore(video_path, output_path, photos, progress=None):
+def restore(video_path, output_path, photo_list, progress=None):
     """Run the FaceFusion pass; returns output_path.
 
     Tries CoreML first on Apple Silicon and falls back to CPU — the CoreML
@@ -140,11 +142,12 @@ def restore(video_path, output_path, photos, progress=None):
     if not available():
         raise FaceRestoreError(
             "Face restore isn't installed — run ./setup.sh --face-restore.")
-    if not photos:
+    if not photo_list:
         raise FaceRestoreError("No face photo found.")
     env = dict(os.environ)
     env["PATH"] = BIN_DIR + os.pathsep + env.get("PATH", "")  # vendored ffmpeg
     last_error = ""
+    settings = load_settings()
     with _RUN_LOCK:
         for provider in providers():
             if progress:
@@ -155,7 +158,8 @@ def restore(video_path, output_path, photos, progress=None):
                             else ", retrying on CPU"))
             try:
                 proc = subprocess.run(
-                    build_command(photos, video_path, output_path, provider),
+                    build_command(photo_list, video_path, output_path,
+                                  provider, settings),
                     cwd=FF_DIR, env=env, capture_output=True, text=True,
                     timeout=TIMEOUT_SECONDS)
             except subprocess.TimeoutExpired:

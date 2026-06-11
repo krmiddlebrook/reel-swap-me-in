@@ -10,7 +10,8 @@ from app import face_restore, photos
 class TestBuildCommand(unittest.TestCase):
     def test_sources_target_output(self):
         cmd = face_restore.build_command(
-            ["a.jpg", "b.png"], "in.mp4", "out.mp4", "cpu")
+            ["a.jpg", "b.png"], "in.mp4", "out.mp4", "cpu",
+            face_restore.DEFAULT_SETTINGS)
         self.assertEqual(cmd[2], "headless-run")
         i = cmd.index("-s")
         self.assertEqual(cmd[i + 1:i + 3], ["a.jpg", "b.png"])
@@ -19,13 +20,28 @@ class TestBuildCommand(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--execution-providers") + 1], "cpu")
 
     def test_swap_and_enhance_processors(self):
-        cmd = face_restore.build_command(["a.jpg"], "t", "o", "coreml")
+        cmd = face_restore.build_command(["a.jpg"], "t", "o", "coreml",
+                                         face_restore.DEFAULT_SETTINGS)
         i = cmd.index("--processors")
         self.assertEqual(cmd[i + 1:i + 3], ["face_swapper", "face_enhancer"])
 
     def test_aac_audio_for_player_compatibility(self):
-        cmd = face_restore.build_command(["a.jpg"], "t", "o", "cpu")
+        cmd = face_restore.build_command(["a.jpg"], "t", "o", "cpu",
+                                         face_restore.DEFAULT_SETTINGS)
         self.assertEqual(cmd[cmd.index("--output-audio-encoder") + 1], "aac")
+
+    def test_settings_reach_the_command(self):
+        settings = {"enhancer_blend": 35, "pixel_boost": "768x768",
+                    "swapper_model": "inswapper_128_fp16",
+                    "enhancer_model": "codeformer"}
+        cmd = face_restore.build_command(["a.jpg"], "t", "o", "cpu", settings)
+        self.assertEqual(cmd[cmd.index("--face-swapper-model") + 1],
+                         "inswapper_128_fp16")
+        self.assertEqual(cmd[cmd.index("--face-swapper-pixel-boost") + 1],
+                         "768x768")
+        self.assertEqual(cmd[cmd.index("--face-enhancer-model") + 1],
+                         "codeformer")
+        self.assertEqual(cmd[cmd.index("--face-enhancer-blend") + 1], "35")
 
 
 class TestProviders(unittest.TestCase):
