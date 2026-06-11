@@ -73,6 +73,12 @@ class TestPhotoPath(PhotoDirCase):
                     "/etc/passwd", "nope.jpg"):
             self.assertIsNone(photos.photo_path(bad), bad)
 
+    def test_rejects_non_image_names(self):
+        self.write(self.faces, ".DS_Store")
+        self.write(self.faces, "notes.txt")
+        self.assertIsNone(photos.photo_path(".DS_Store"))
+        self.assertIsNone(photos.photo_path("notes.txt"))
+
 
 class TestSave(PhotoDirCase):
     def test_save_main_replaces_old_main(self):
@@ -117,6 +123,12 @@ class TestSave(PhotoDirCase):
         with self.assertRaises(photos.PhotoError):
             photos.save_extra(b"x", ".gif")
 
+    def test_save_extra_failed_write_raises_photo_error(self):
+        with mock.patch("app.photos.open", side_effect=OSError("boom"),
+                        create=True):
+            with self.assertRaises(photos.PhotoError):
+                photos.save_extra(b"x", ".jpg")
+
 
 class TestDelete(PhotoDirCase):
     def test_delete_extra(self):
@@ -134,6 +146,15 @@ class TestDelete(PhotoDirCase):
         with self.assertRaises(photos.PhotoError) as ctx:
             photos.delete_extra("me.jpg")
         self.assertEqual(ctx.exception.status, 400)
+
+    def test_delete_vanished_file_is_404(self):
+        path = photos.save_extra(b"a", ".jpg")
+        name = os.path.basename(path)
+        with mock.patch.object(photos.os, "remove",
+                               side_effect=OSError("gone")):
+            with self.assertRaises(photos.PhotoError) as ctx:
+                photos.delete_extra(name)
+        self.assertEqual(ctx.exception.status, 404)
 
 
 class TestPromote(PhotoDirCase):
@@ -185,6 +206,14 @@ class TestPromote(PhotoDirCase):
         self.write(self.assets, "me.jpg")
         with self.assertRaises(photos.PhotoError):
             photos.promote("me.jpg")  # already main
+
+    def test_promote_rejects_non_image(self):
+        self.write(self.faces, ".DS_Store")
+        self.write(self.assets, "me.jpg")
+        with self.assertRaises(photos.PhotoError) as ctx:
+            photos.promote(".DS_Store")
+        self.assertEqual(ctx.exception.status, 404)
+        self.assertEqual(os.path.basename(photos.main_photo()), "me.jpg")
 
 
 if __name__ == "__main__":

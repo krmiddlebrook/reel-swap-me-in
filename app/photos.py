@@ -62,6 +62,8 @@ def photo_path(name):
     main = main_photo()
     if main and name == os.path.basename(main):
         return main
+    if not name.lower().endswith(_VALID_EXTS):
+        return None
     path = os.path.join(FACES_DIR, name)
     if os.path.isfile(path):
         return path
@@ -110,8 +112,15 @@ def save_extra(data, ext):
     os.makedirs(FACES_DIR, exist_ok=True)
     path = os.path.join(FACES_DIR,
                         "face-%s%s" % (uuid.uuid4().hex[:8], ext))
-    with open(path, "wb") as fh:
-        fh.write(data)
+    try:
+        with open(path, "wb") as fh:
+            fh.write(data)
+    except OSError:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        raise PhotoError("Couldn't save the photo.")
     return path
 
 
@@ -124,7 +133,10 @@ def delete_extra(name):
     if path == main_photo():
         raise PhotoError(
             "The main photo can't be removed — promote another photo first.")
-    os.remove(path)
+    try:
+        os.remove(path)
+    except OSError:
+        raise PhotoError("Unknown photo.", status=404)
 
 
 def promote(name):
@@ -156,5 +168,8 @@ def promote(name):
     except OSError:
         os.replace(demoted, main)  # restore the old main
         raise PhotoError("Couldn't promote that photo.")
-    os.utime(new_main, None)
+    try:
+        os.utime(new_main, None)
+    except OSError:
+        pass
     return new_main
