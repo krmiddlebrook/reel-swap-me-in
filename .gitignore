@@ -5,3 +5,4 @@ assets/me.jpg
 assets/character-sheet.*
 __pycache__/
 *.pyc
+.higgsfield-credentials.json

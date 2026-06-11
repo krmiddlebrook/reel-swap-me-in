@@ -3,7 +3,21 @@ import unittest
 
 from app.claude_swap import describe_tool_event, parse_agent_output
 from app.pipeline import (PipelineError, clamp_length, clamp_start,
-                          plan_trim, validate_reel_url)
+                          detect_image_ext, plan_trim, validate_reel_url)
+
+
+class TestDetectImageExt(unittest.TestCase):
+    def test_jpeg(self):
+        self.assertEqual(detect_image_ext(b"\xff\xd8\xff\xe0" + b"x" * 16),
+                         ".jpg")
+
+    def test_png(self):
+        self.assertEqual(detect_image_ext(b"\x89PNG\r\n\x1a\n" + b"x" * 16),
+                         ".png")
+
+    def test_garbage_and_short(self):
+        self.assertIsNone(detect_image_ext(b"GIF89a..."))
+        self.assertIsNone(detect_image_ext(b""))
 
 
 class TestValidateReelUrl(unittest.TestCase):

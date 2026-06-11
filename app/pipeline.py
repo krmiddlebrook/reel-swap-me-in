@@ -28,6 +28,15 @@ _REEL_URL = re.compile(
 )
 
 
+def detect_image_ext(data):
+    """'.jpg' / '.png' from magic bytes, or None for anything else."""
+    if data[:3] == b"\xff\xd8\xff":
+        return ".jpg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return ".png"
+    return None
+
+
 def validate_reel_url(url):
     url = (url or "").strip()
     if not _REEL_URL.match(url):

@@ -70,9 +70,7 @@ def parse_credentials(raw):
     for key, entry in (data.get("mcpOAuth") or {}).items():
         if key.startswith("higgsfield") and entry.get("accessToken"):
             return entry
-    raise HiggsfieldFatal(
-        "Higgsfield isn't connected to Claude Code — run './setup.sh', then "
-        "'claude', type /mcp, and authenticate higgsfield.")
+    raise HiggsfieldFatal(_CONNECT_HINT)
 
 
 def unframe(raw):
@@ -170,28 +168,46 @@ def classify_tool_error(text):
 
 # ----------------------------------------------------------------------- auth
 
+MCP_URL = "https://mcp.higgsfield.ai/mcp"
+
+_CONNECT_HINT = (
+    "Higgsfield isn't connected — open http://localhost:8787 and click "
+    "'Connect Higgsfield' (or, if you use Claude Code, authenticate via /mcp).")
+
+
 def _read_credentials():
-    out = subprocess.run(
-        ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
-        capture_output=True, text=True)
+    try:
+        out = subprocess.run(
+            ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
+            capture_output=True, text=True)
+    except OSError:  # no `security` binary (Linux) — Keychain path unavailable
+        raise HiggsfieldFatal(_CONNECT_HINT)
     if out.returncode != 0:
-        raise HiggsfieldFatal(
-            "Couldn't read Claude Code's credential store from the Keychain.")
+        raise HiggsfieldFatal(_CONNECT_HINT)
     return parse_credentials(out.stdout)
 
 
 def get_token():
-    """Return (access_token, server_url), refreshing via the claude CLI
-    (a no-inference health check) when the stored token is near expiry."""
+    """Return (access_token, server_url). Prefers the app-owned OAuth store
+    (works anywhere, refreshes itself); falls back to Claude Code's Keychain
+    entry, refreshed via the claude CLI (a no-inference health check)."""
+    from app import oauth
+
+    app_token = oauth.get_app_token()
+    if app_token:
+        return app_token, MCP_URL
     entry = _read_credentials()
     if entry.get("expiresAt", 0) / 1000.0 < time.time() + 60:
-        subprocess.run(["claude", "mcp", "list"], capture_output=True,
-                       text=True, timeout=180)
+        try:
+            subprocess.run(["claude", "mcp", "list"], capture_output=True,
+                           text=True, timeout=180)
+        except OSError:
+            raise HiggsfieldFatal(_CONNECT_HINT)
         entry = _read_credentials()
         if entry.get("expiresAt", 0) / 1000.0 < time.time() + 60:
             raise HiggsfieldFatal(
-                "Higgsfield login expired — run 'claude', type /mcp, and "
-                "re-authenticate higgsfield.")
+                "Higgsfield login expired — reconnect at http://localhost:8787 "
+                "or via /mcp in claude.")
     return entry["accessToken"], entry["serverUrl"]
 
 
