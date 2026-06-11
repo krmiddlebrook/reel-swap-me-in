@@ -27,26 +27,47 @@ _ALLOWED_TOOLS = ",".join([
     "Bash(curl *)",
 ])
 
+_UPLOAD_RULES = """- If an upload tool hands you a pre-signed URL to push file bytes to, run that upload yourself with a Bash curl command (for example `curl -sf -X PUT --data-binary @"<file>" "<url>"` — follow whatever method and headers the tool specifies). curl to higgsfield.ai hosts is pre-approved.
+- Use Higgsfield MCP tools, plus Bash curl commands only for uploading the local files named above to Higgsfield URLs.
+- If a tool fails for auth or credit reasons, stop and report it via the error JSON."""
+
 PROMPT = """You are connected to the Higgsfield MCP server (tools prefixed mcp__higgsfield__).
 
 Goal: create a character-swapped version of a video.
 - Source video (local file): {video}
-- Reference image of the replacement person (local file): {photo}
+- Character sheet of the replacement person (local image file): {photo}
 
 Steps:
 1. Look at the Higgsfield tools you have available.
-2. Upload the source video and the reference image using the appropriate Higgsfield upload tool(s). If an upload tool hands you a pre-signed URL to push file bytes to, run that upload yourself with a Bash curl command (for example `curl -sf -X PUT --data-binary @"<file>" "<url>"` — follow whatever method and headers the tool specifies). curl to higgsfield.ai hosts is pre-approved.
+2. Upload the source video and the character sheet image using the appropriate Higgsfield upload tool(s).
 3. Find the character-swap model in the model catalog. It is the one that replaces the person in an existing video with a character from a reference image while keeping the original motion — called Recast, or WAN 2.2 Animate in "replace" mode.
-4. Submit the generation with the uploaded video as the source/motion input and the uploaded image as the character reference. Use sensible defaults for other parameters.
+4. Submit the generation with the uploaded video as the source/motion input and the uploaded character sheet as the character reference. Use sensible defaults for other parameters.
 5. Wait and poll until the generation completes. It can take several minutes — keep polling.
 6. Reply with ONLY one JSON object as the final line, no markdown fences:
    - success: {{"videoUrl": "<direct URL of the generated video file>"}}
    - failure: {{"error": "<one short sentence saying what failed>"}}
 
 Rules:
-- Use Higgsfield MCP tools, plus Bash curl commands only for uploading these two local files to Higgsfield URLs.
-- If a tool fails for auth or credit reasons, stop and report it via the error JSON.
+{rules}
 - Generate only the requested character swap, nothing else."""
+
+SHEET_PROMPT = """You are connected to the Higgsfield MCP server (tools prefixed mcp__higgsfield__).
+
+Goal: create a character reference sheet from a photo of a person.
+- Source photo (local file): {photo}
+
+Steps:
+1. Look at the Higgsfield tools you have available.
+2. Upload the photo using the appropriate Higgsfield upload tool.
+3. Use a Higgsfield image-generation model that accepts an identity/character reference image (for example Soul or Nano Banana) to generate ONE character-sheet image of the same person: photorealistic, faithful to the photo's identity, on a plain light-gray studio background with even lighting; the sheet should show a full-body front view plus three-quarter and profile head views arranged on one image; no text, labels, or watermarks.
+4. Wait and poll until the generation completes.
+5. Reply with ONLY one JSON object as the final line, no markdown fences:
+   - success: {{"imageUrl": "<direct URL of the generated image file>"}}
+   - failure: {{"error": "<one short sentence saying what failed>"}}
+
+Rules:
+{rules}
+- Generate only the requested character sheet, nothing else."""
 
 
 def describe_tool_event(tool_name):
@@ -79,7 +100,7 @@ def _extract_json(text):
     return None
 
 
-def parse_agent_output(stdout):
+def parse_agent_output(stdout, key="videoUrl"):
     envelope = _extract_json(stdout or "")
     if envelope is None:
         raise PipelineError(
@@ -90,23 +111,38 @@ def parse_agent_output(stdout):
             "Claude run failed: %s — if this mentions auth, redo the /mcp "
             "login in claude." % str(envelope.get("result"))[:300])
     payload = _extract_json(envelope.get("result") or "")
-    if payload and payload.get("videoUrl"):
-        return payload["videoUrl"]
+    if payload and payload.get(key):
+        return payload[key]
     if payload and payload.get("error"):
         raise PipelineError("Higgsfield step failed: %s" % payload["error"])
     raise PipelineError(
-        "The agent finished without producing a video URL. Raw reply: %s"
+        "The agent finished without producing a result URL. Raw reply: %s"
         % str(envelope.get("result"))[:300])
 
 
-def swap(video_path, photo_path, progress=None):
+def swap(video_path, sheet_path, progress=None):
     """Returns the URL of the generated (character-swapped) video.
 
     Streams the agent's tool calls so `progress(detail)` can narrate
     upload → submit → render in the UI as they happen.
     """
+    prompt = PROMPT.format(video=video_path, photo=sheet_path,
+                           rules=_UPLOAD_RULES)
+    return parse_agent_output(_run_agent(prompt, progress), key="videoUrl")
+
+
+def create_character_sheet(photo_path, progress=None):
+    """Returns the URL of a generated multi-view character sheet image."""
+    prompt = SHEET_PROMPT.format(photo=photo_path, rules=_UPLOAD_RULES)
+    return parse_agent_output(_run_agent(prompt, progress), key="imageUrl")
+
+
+def _run_agent(prompt, progress=None):
+    """Run headless claude -p, streaming tool events to `progress`.
+
+    Returns the raw final result-envelope line for parse_agent_output."""
     cmd = [
-        "claude", "-p", PROMPT.format(video=video_path, photo=photo_path),
+        "claude", "-p", prompt,
         "--output-format", "stream-json", "--verbose",
         "--allowedTools", _ALLOWED_TOOLS,
         "--max-turns", "80",
@@ -154,4 +190,4 @@ def swap(video_path, photo_path, progress=None):
         stderr_file.seek(0)
         raise PipelineError(
             "Claude exited with an error: %s" % stderr_file.read()[:300])
-    return parse_agent_output(result_line)
+    return result_line

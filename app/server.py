@@ -38,7 +38,7 @@ def _run_start(job_id, url):
                 _job_files[job_id] = info
             _set_job(
                 job_id, status="awaiting_selection", step="selecting",
-                detail="This reel is %ds — pick which 15 seconds to use."
+                detail="This reel is %ds — pick the part to use (5–15s)."
                        % round(info["duration"]),
                 reelUrl="/work/%s/reel.mp4" % job_id,
                 duration=info["duration"])
@@ -50,18 +50,19 @@ def _run_start(job_id, url):
         _set_job(job_id, status="error", error="Unexpected error: %s" % exc)
 
 
-def _run_finish(job_id, info, start):
+def _run_finish(job_id, info, start, length=None):
     try:
-        _finish(job_id, info, start)
+        _finish(job_id, info, start, length)
     except pipeline.PipelineError as exc:
         _set_job(job_id, status="error", error=str(exc))
     except Exception as exc:
         _set_job(job_id, status="error", error="Unexpected error: %s" % exc)
 
 
-def _finish(job_id, info, start):
+def _finish(job_id, info, start, length=None):
     out_path = pipeline.finish_job(
-        job_id, info["path"], info["duration"], start, _progress(job_id))
+        job_id, info["path"], info["duration"], start, _progress(job_id),
+        length=length)
     _set_job(job_id, status="done", step="done",
              detail="Your reel is ready!",
              resultUrl="/output/%s" % os.path.basename(out_path))
@@ -171,13 +172,15 @@ class Handler(BaseHTTPRequestHandler):
         if job.get("status") != "awaiting_selection":
             self._json(409, {"error": "This job isn't waiting on a clip choice."})
             return
-        start = pipeline.clamp_start(data.get("start"), info["duration"])
+        length = pipeline.clamp_length(data.get("length"), info["duration"])
+        start = pipeline.clamp_start(data.get("start"), info["duration"], length)
         _set_job(job_id, status="running", step="preparing",
-                 detail="Clipping from %0.1fs…" % start,
+                 detail="Clipping %0.1fs from %0.1fs…" % (length, start),
                  reelUrl=None)
-        threading.Thread(target=_run_finish, args=(job_id, info, start),
+        threading.Thread(target=_run_finish,
+                         args=(job_id, info, start, length),
                          daemon=True).start()
-        self._json(202, {"jobId": job_id, "start": start})
+        self._json(202, {"jobId": job_id, "start": start, "length": length})
 
     def log_message(self, fmt, *args):  # keep the console quiet while polling
         if "/api/jobs/" not in (args[0] if args else ""):

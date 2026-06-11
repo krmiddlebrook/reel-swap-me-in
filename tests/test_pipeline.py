@@ -2,8 +2,8 @@ import json
 import unittest
 
 from app.claude_swap import describe_tool_event, parse_agent_output
-from app.pipeline import (PipelineError, clamp_start, plan_trim,
-                          validate_reel_url)
+from app.pipeline import (PipelineError, clamp_length, clamp_start,
+                          plan_trim, validate_reel_url)
 
 
 class TestValidateReelUrl(unittest.TestCase):
@@ -74,6 +74,11 @@ class TestParseAgentOutput(unittest.TestCase):
         with self.assertRaises(PipelineError):
             parse_agent_output("not json at all")
 
+    def test_custom_result_key(self):
+        out = self._envelope('{"imageUrl": "https://cdn.example/sheet.png"}')
+        self.assertEqual(parse_agent_output(out, key="imageUrl"),
+                         "https://cdn.example/sheet.png")
+
 
 class TestClampStart(unittest.TestCase):
     def test_in_range_passes_through(self):
@@ -95,6 +100,34 @@ class TestClampStart(unittest.TestCase):
 
     def test_short_video_always_zero(self):
         self.assertEqual(clamp_start(4, 12.0), 0.0)
+
+    def test_shorter_window_allows_later_start(self):
+        self.assertEqual(clamp_start(50, 60.0, length=8.0), 50.0)
+        self.assertEqual(clamp_start(55, 60.0, length=8.0), 52.0)
+
+
+class TestClampLength(unittest.TestCase):
+    def test_default_is_max_window(self):
+        self.assertEqual(clamp_length(None, 60.0), 15.0)
+
+    def test_in_range_passes_through(self):
+        self.assertEqual(clamp_length(8, 60.0), 8.0)
+
+    def test_below_minimum_clamps_to_5(self):
+        self.assertEqual(clamp_length(2, 60.0), 5.0)
+
+    def test_above_maximum_clamps_to_15(self):
+        self.assertEqual(clamp_length(30, 60.0), 15.0)
+
+    def test_never_longer_than_video(self):
+        self.assertEqual(clamp_length(15, 12.0), 12.0)
+
+    def test_garbage_becomes_default(self):
+        self.assertEqual(clamp_length("abc", 60.0), 15.0)
+
+    def test_unknown_duration_clamps_to_window(self):
+        self.assertEqual(clamp_length(9, None), 9.0)
+        self.assertEqual(clamp_length(None, None), 15.0)
 
 
 class TestDescribeToolEvent(unittest.TestCase):

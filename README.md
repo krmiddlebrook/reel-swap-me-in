@@ -42,22 +42,33 @@ generation typically takes a few minutes; the page narrates each stage
 video appears in the page and is saved under `output/`.
 
 **Reels longer than 15 seconds:** the page pauses and shows the downloaded
-reel with a slider — drag it to pick which 15-second window to use (the
-preview loops just that window), then hit **Use this part**.
+reel with two sliders — pick the start point and the clip length (5–15s,
+Higgsfield's limits). The preview loops just the selected window. Hit
+**Use this part** to continue.
 
-Headless one-shot mode (optional second argument = clip start in seconds):
+**Character sheet:** on your first run (and again whenever you change
+`assets/me.jpg`), the app has Higgsfield generate a multi-view character
+sheet from your photo — front, three-quarter, and profile on a neutral
+background — caches it as `assets/character-sheet.*`, and uses *that* as the
+swap reference. A clean multi-angle reference gives the swap more identity
+signal than a single casual photo. This costs credits once per photo, not
+per reel.
+
+Headless one-shot mode (optional args: clip start, clip length in seconds):
 
 ```sh
-python3 replicate.py https://www.instagram.com/reel/XXXXXXXX/ 12.5
+python3 replicate.py https://www.instagram.com/reel/XXXXXXXX/ 12.5 8
 ```
 
 ## How it works
 
 ```
 reel URL → bin/yt-dlp (download, public reels only)
-         → pick a 15s window if the reel is longer (slider in the page)
-         → bin/ffmpeg (reject <5s, cut the chosen window to exactly 15s)
-         → claude -p + Higgsfield MCP (upload video + assets/me.jpg,
+         → pick start + length (5–15s) if the reel runs long (page sliders)
+         → bin/ffmpeg (reject <5s, cut the chosen window frame-accurately)
+         → character sheet (generated once from assets/me.jpg via
+           Higgsfield, cached as assets/character-sheet.*)
+         → claude -p + Higgsfield MCP (upload clip + character sheet,
            run character-swap generation, poll to completion)
          → output/<job>.mp4 (served back to the page)
 ```

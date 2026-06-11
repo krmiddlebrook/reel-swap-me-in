@@ -26,8 +26,9 @@
   @keyframes spin { to { transform:rotate(360deg); } }
   video { margin-top:24px; width:100%; max-height:70vh; border-radius:16px; background:#000; }
   a.dl { display:inline-block; margin-top:12px; color:#a99cff; }
-  #picker input[type=range] { width:100%; margin-top:14px; accent-color:#7c6cf2; }
-  #rangeLabel { margin:8px 0 14px; color:#c9c5d8; }
+  #picker input[type=range] { width:100%; margin-top:2px; accent-color:#7c6cf2; }
+  .sliderLabel { display:block; margin-top:12px; text-align:left; font-size:13px; color:#9a96a8; }
+  #rangeLabel { margin:10px 0 14px; color:#c9c5d8; }
 </style>
 </head>
 <body>
@@ -41,7 +42,10 @@
   <div id="status"></div>
   <div id="picker" hidden>
     <video id="pickVideo" muted playsinline></video>
+    <label class="sliderLabel">Start</label>
     <input id="startRange" type="range" min="0" max="0" step="0.1" value="0">
+    <label class="sliderLabel">Length</label>
+    <input id="lengthRange" type="range" min="5" max="15" step="0.5" value="15">
     <div id="rangeLabel"></div>
     <button id="useClip" type="button">Use this part</button>
   </div>
@@ -53,9 +57,9 @@ const f = document.getElementById("f"), urlEl = document.getElementById("url"),
       resultEl = document.getElementById("result"),
       picker = document.getElementById("picker"), pickVideo = document.getElementById("pickVideo"),
       startRange = document.getElementById("startRange"), rangeLabel = document.getElementById("rangeLabel"),
-      useClip = document.getElementById("useClip");
-const WINDOW = 15;
-let timer = null, ticker = null, startTime = null, lastDetail = "", jobId = null;
+      lengthRange = document.getElementById("lengthRange"), useClip = document.getElementById("useClip");
+const MIN_LEN = 5, MAX_LEN = 15;
+let timer = null, ticker = null, startTime = null, lastDetail = "", jobId = null, reelDuration = 0;
 
 function fmtClock(totalSeconds) {
   const s = Math.max(0, Math.floor(totalSeconds));
@@ -91,33 +95,45 @@ function hidePicker() {
 }
 
 function clipStart() { return parseFloat(startRange.value) || 0; }
+function clipLength() { return parseFloat(lengthRange.value) || MAX_LEN; }
 
-function updateRangeLabel() {
-  const s = clipStart();
-  rangeLabel.textContent = `Using ${fmtClock(s)} → ${fmtClock(s + WINDOW)} of the reel`;
+function syncSliders() {
+  // start can reach only as far as duration - length
+  startRange.max = Math.max(0, reelDuration - clipLength()).toFixed(1);
+  if (clipStart() > parseFloat(startRange.max)) startRange.value = startRange.max;
+  const s = clipStart(), len = clipLength();
+  rangeLabel.textContent =
+    `Using ${fmtClock(s)} → ${fmtClock(s + len)} of the reel (${len}s clip)`;
 }
 
 function showPicker(job) {
   stopTimers(); startTime = null;
-  setStatus(job.detail || "Pick which 15 seconds to use.");
-  startRange.max = Math.max(0, job.duration - WINDOW).toFixed(1);
+  setStatus(job.detail || "Pick the part of the reel to use.");
+  reelDuration = job.duration;
+  lengthRange.max = Math.min(MAX_LEN, Math.floor(job.duration * 2) / 2);
+  lengthRange.value = lengthRange.max;
   startRange.value = 0;
-  updateRangeLabel();
+  syncSliders();
   pickVideo.src = job.reelUrl;
   picker.hidden = false;
   pickVideo.play().catch(() => {});
 }
 
 startRange.addEventListener("input", () => {
-  updateRangeLabel();
+  syncSliders();
   pickVideo.currentTime = clipStart();
 });
 
-// Preview loops only the selected 15s window.
+lengthRange.addEventListener("input", () => {
+  syncSliders();
+  pickVideo.currentTime = clipStart();
+});
+
+// Preview loops only the selected window.
 pickVideo.addEventListener("timeupdate", () => {
   if (picker.hidden) return;
   const s = clipStart();
-  if (pickVideo.currentTime > s + WINDOW || pickVideo.currentTime < s - 0.4) {
+  if (pickVideo.currentTime > s + clipLength() || pickVideo.currentTime < s - 0.4) {
     pickVideo.currentTime = s;
     pickVideo.play().catch(() => {});
   }
@@ -132,7 +148,7 @@ useClip.addEventListener("click", async () => {
     const r = await fetch(`/api/jobs/${jobId}/clip`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ start: clipStart() }),
+      body: JSON.stringify({ start: clipStart(), length: clipLength() }),
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || "Request failed");

@@ -1,7 +1,9 @@
 """Reel-replication pipeline: download → prepare → swap → save."""
+import glob
 import os
 import re
 import subprocess
+import urllib.parse
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -44,8 +46,21 @@ def plan_trim(duration_seconds):
     return None
 
 
-def clamp_start(start, duration_seconds):
-    """Clamp a user-chosen clip start so [start, start+15s] fits the video."""
+def clamp_length(length, duration_seconds):
+    """Clamp a user-chosen clip length to Higgsfield's 5–15s window (and
+    never longer than the video itself)."""
+    try:
+        length = float(length)
+    except (TypeError, ValueError):
+        length = MAX_SECONDS
+    length = max(MIN_SECONDS, min(length, MAX_SECONDS))
+    if duration_seconds is not None:
+        length = min(length, duration_seconds)
+    return length
+
+
+def clamp_start(start, duration_seconds, length=MAX_SECONDS):
+    """Clamp a user-chosen clip start so [start, start+length] fits."""
     try:
         start = float(start)
     except (TypeError, ValueError):
@@ -53,7 +68,7 @@ def clamp_start(start, duration_seconds):
     if start < 0:
         return 0.0
     if duration_seconds is not None:
-        return max(0.0, min(start, duration_seconds - MAX_SECONDS))
+        return max(0.0, min(start, duration_seconds - length))
     return start
 
 
@@ -94,23 +109,55 @@ def download_reel(url, job_dir):
     return out_path, duration
 
 
-def prepare_clip(path, duration, job_dir, start=0.0):
-    """Trim to Higgsfield's window when needed; returns the path to use.
-
-    `start` (seconds) picks which window of a long reel to keep."""
-    trim_to = plan_trim(duration)
-    start = clamp_start(start, duration)
-    if trim_to is None:
-        return path
+def prepare_clip(path, duration, job_dir, start=0.0, length=None):
+    """Cut the chosen [start, start+length] window when needed; returns the
+    path to use. Length is clamped to Higgsfield's 5–15s window."""
+    plan_trim(duration)  # rejects videos under 5s
+    length = clamp_length(length, duration)
+    start = clamp_start(start, duration, length)
+    if duration is not None and start <= 0 and length >= duration:
+        return path  # the whole video already fits the window
     trimmed = os.path.join(job_dir, "reel-trimmed.mp4")
     # Re-encode rather than stream-copy: copy cuts on keyframes and can
-    # overshoot past 15s, which Higgsfield rejects.
-    cmd = [FFMPEG, "-y", "-ss", str(start), "-i", path, "-t", str(trim_to),
+    # overshoot the window, which Higgsfield rejects.
+    cmd = [FFMPEG, "-y", "-ss", str(start), "-i", path, "-t", str(length),
            trimmed]
     proc = subprocess.run(cmd, capture_output=True, timeout=300)
     if proc.returncode != 0 or not os.path.exists(trimmed):
-        raise PipelineError("Couldn't trim the reel to 15 seconds.")
+        raise PipelineError("Couldn't cut the selected clip.")
     return trimmed
+
+
+def _cached_character_sheet():
+    """Return the cached sheet path if it's newer than the user photo."""
+    for path in glob.glob(os.path.join(ROOT, "assets", "character-sheet.*")):
+        if os.path.getmtime(path) >= os.path.getmtime(USER_PHOTO):
+            return path
+        os.remove(path)  # photo changed — stale sheet
+    return None
+
+
+def ensure_character_sheet(progress):
+    """Generate (once) a multi-view character sheet from the user photo and
+    cache it in assets/. The sheet is the reference Higgsfield swaps in."""
+    from app import claude_swap
+
+    cached = _cached_character_sheet()
+    if cached:
+        return cached
+    progress("sheet", "Creating your character sheet "
+                      "(happens once per photo)…")
+    url = claude_swap.create_character_sheet(
+        USER_PHOTO, progress=lambda detail: progress("sheet", detail))
+    ext = os.path.splitext(urllib.parse.urlparse(url).path)[1] or ".png"
+    sheet_path = os.path.join(ROOT, "assets", "character-sheet" + ext)
+    try:
+        urllib.request.urlretrieve(url, sheet_path)
+    except Exception:
+        raise PipelineError(
+            "Character sheet was generated but downloading it failed. "
+            "URL: %s" % url)
+    return sheet_path
 
 
 def save_result(video_url, job_id):
@@ -139,28 +186,32 @@ def start_job(job_id, url, progress):
             "needs_selection": needs_selection}
 
 
-def finish_job(job_id, path, duration, start, progress):
-    """Phase 2: trim from `start`, run the swap, save the result."""
+def finish_job(job_id, path, duration, start, progress, length=None):
+    """Phase 2: cut the chosen window, ensure the character sheet, run the
+    swap, save the result."""
     from app import claude_swap  # late import: keeps pure functions test-light
 
     job_dir = os.path.join(WORK_DIR, job_id)
-    progress("preparing", "Preparing your 15-second clip…")
-    clip = prepare_clip(path, duration, job_dir, start=start)
+    progress("preparing", "Cutting your clip…")
+    clip = prepare_clip(path, duration, job_dir, start=start, length=length)
+
+    sheet = ensure_character_sheet(progress)
 
     progress("swapping",
              "Claude + Higgsfield are re-casting you into the reel "
              "(this can take several minutes)…")
     video_url = claude_swap.swap(
-        clip, USER_PHOTO,
+        clip, sheet,
         progress=lambda detail: progress("swapping", detail))
 
     progress("saving", "Downloading your generated video…")
     return save_result(video_url, job_id)
 
 
-def run_job(job_id, url, progress, start=0.0):
+def run_job(job_id, url, progress, start=0.0, length=None):
     """Full pipeline in one shot (CLI mode — no interactive selection).
 
     Returns the path of the final video under output/."""
     info = start_job(job_id, url, progress)
-    return finish_job(job_id, info["path"], info["duration"], start, progress)
+    return finish_job(job_id, info["path"], info["duration"], start,
+                      progress, length=length)
