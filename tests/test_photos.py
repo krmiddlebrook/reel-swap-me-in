@@ -74,5 +74,39 @@ class TestPhotoPath(PhotoDirCase):
             self.assertIsNone(photos.photo_path(bad), bad)
 
 
+class TestSave(PhotoDirCase):
+    def test_save_main_replaces_old_main(self):
+        self.write(self.assets, "me.png")
+        path = photos.save_main(b"new", ".jpg")
+        self.assertEqual(os.path.basename(path), "me.jpg")
+        self.assertEqual(photos.main_photo(), path)
+        self.assertFalse(os.path.exists(os.path.join(self.assets, "me.png")))
+
+    def test_save_extra_unique_names(self):
+        a = photos.save_extra(b"a", ".jpg")
+        b = photos.save_extra(b"b", ".png")
+        self.assertNotEqual(a, b)
+        self.assertEqual(len(photos.extra_photos()), 2)
+        self.assertTrue(os.path.basename(a).startswith("face-"))
+
+
+class TestDelete(PhotoDirCase):
+    def test_delete_extra(self):
+        path = photos.save_extra(b"a", ".jpg")
+        photos.delete_extra(os.path.basename(path))
+        self.assertEqual(photos.extra_photos(), [])
+
+    def test_delete_unknown_is_404(self):
+        with self.assertRaises(photos.PhotoError) as ctx:
+            photos.delete_extra("nope.jpg")
+        self.assertEqual(ctx.exception.status, 404)
+
+    def test_delete_main_refused(self):
+        self.write(self.assets, "me.jpg")
+        with self.assertRaises(photos.PhotoError) as ctx:
+            photos.delete_extra("me.jpg")
+        self.assertEqual(ctx.exception.status, 400)
+
+
 if __name__ == "__main__":
     unittest.main()
