@@ -44,6 +44,19 @@ def plan_trim(duration_seconds):
     return None
 
 
+def clamp_start(start, duration_seconds):
+    """Clamp a user-chosen clip start so [start, start+15s] fits the video."""
+    try:
+        start = float(start)
+    except (TypeError, ValueError):
+        return 0.0
+    if start < 0:
+        return 0.0
+    if duration_seconds is not None:
+        return max(0.0, min(start, duration_seconds - MAX_SECONDS))
+    return start
+
+
 def _require_setup():
     missing = []
     if not os.path.exists(YTDLP):
@@ -81,15 +94,19 @@ def download_reel(url, job_dir):
     return out_path, duration
 
 
-def prepare_clip(path, duration, job_dir):
-    """Trim to Higgsfield's window when needed; returns the path to use."""
+def prepare_clip(path, duration, job_dir, start=0.0):
+    """Trim to Higgsfield's window when needed; returns the path to use.
+
+    `start` (seconds) picks which window of a long reel to keep."""
     trim_to = plan_trim(duration)
+    start = clamp_start(start, duration)
     if trim_to is None:
         return path
     trimmed = os.path.join(job_dir, "reel-trimmed.mp4")
     # Re-encode rather than stream-copy: copy cuts on keyframes and can
     # overshoot past 15s, which Higgsfield rejects.
-    cmd = [FFMPEG, "-y", "-i", path, "-t", str(trim_to), trimmed]
+    cmd = [FFMPEG, "-y", "-ss", str(start), "-i", path, "-t", str(trim_to),
+           trimmed]
     proc = subprocess.run(cmd, capture_output=True, timeout=300)
     if proc.returncode != 0 or not os.path.exists(trimmed):
         raise PipelineError("Couldn't trim the reel to 15 seconds.")
@@ -108,23 +125,27 @@ def save_result(video_url, job_id):
     return out
 
 
-def run_job(job_id, url, progress):
-    """Full pipeline. progress(step, detail) is called before each step.
-
-    Returns the path of the final video under output/."""
-    from app import claude_swap  # late import: keeps pure functions test-light
-
+def start_job(job_id, url, progress):
+    """Phase 1: download the reel and decide whether the user must pick a
+    15s window. Returns {path, duration, needs_selection}."""
     _require_setup()
     url = validate_reel_url(url)
     job_dir = os.path.join(WORK_DIR, job_id)
 
     progress("downloading", "Downloading the reel…")
     path, duration = download_reel(url, job_dir)
+    needs_selection = duration is not None and duration > MAX_SECONDS
+    return {"path": path, "duration": duration,
+            "needs_selection": needs_selection}
 
-    progress("preparing", "Checking length (Higgsfield needs 5–15s)…")
-    clip = prepare_clip(path, duration, job_dir)
-    if clip != path:
-        progress("preparing", "Reel was longer than 15s — using the first 15s.")
+
+def finish_job(job_id, path, duration, start, progress):
+    """Phase 2: trim from `start`, run the swap, save the result."""
+    from app import claude_swap  # late import: keeps pure functions test-light
+
+    job_dir = os.path.join(WORK_DIR, job_id)
+    progress("preparing", "Preparing your 15-second clip…")
+    clip = prepare_clip(path, duration, job_dir, start=start)
 
     progress("swapping",
              "Claude + Higgsfield are re-casting you into the reel "
@@ -135,3 +156,11 @@ def run_job(job_id, url, progress):
 
     progress("saving", "Downloading your generated video…")
     return save_result(video_url, job_id)
+
+
+def run_job(job_id, url, progress, start=0.0):
+    """Full pipeline in one shot (CLI mode — no interactive selection).
+
+    Returns the path of the final video under output/."""
+    info = start_job(job_id, url, progress)
+    return finish_job(job_id, info["path"], info["duration"], start, progress)

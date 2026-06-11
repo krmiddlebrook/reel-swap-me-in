@@ -37,20 +37,26 @@ python3 -m app.server
 ```
 
 Open <http://localhost:8787>, paste a reel URL, hit **Replicate**, and wait —
-generation typically takes a few minutes. The finished video appears in the
-page and is saved under `output/`.
+generation typically takes a few minutes; the page narrates each stage
+(uploading → submitted → rendering) with a live elapsed timer. The finished
+video appears in the page and is saved under `output/`.
 
-Headless one-shot mode:
+**Reels longer than 15 seconds:** the page pauses and shows the downloaded
+reel with a slider — drag it to pick which 15-second window to use (the
+preview loops just that window), then hit **Use this part**.
+
+Headless one-shot mode (optional second argument = clip start in seconds):
 
 ```sh
-python3 replicate.py https://www.instagram.com/reel/XXXXXXXX/
+python3 replicate.py https://www.instagram.com/reel/XXXXXXXX/ 12.5
 ```
 
 ## How it works
 
 ```
 reel URL → bin/yt-dlp (download, public reels only)
-         → bin/ffmpeg (reject <5s, trim >15s to exactly 15s)
+         → pick a 15s window if the reel is longer (slider in the page)
+         → bin/ffmpeg (reject <5s, cut the chosen window to exactly 15s)
          → claude -p + Higgsfield MCP (upload video + assets/me.jpg,
            run character-swap generation, poll to completion)
          → output/<job>.mp4 (served back to the page)

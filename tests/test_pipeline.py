@@ -2,7 +2,8 @@ import json
 import unittest
 
 from app.claude_swap import describe_tool_event, parse_agent_output
-from app.pipeline import PipelineError, plan_trim, validate_reel_url
+from app.pipeline import (PipelineError, clamp_start, plan_trim,
+                          validate_reel_url)
 
 
 class TestValidateReelUrl(unittest.TestCase):
@@ -72,6 +73,28 @@ class TestParseAgentOutput(unittest.TestCase):
     def test_garbage_raises(self):
         with self.assertRaises(PipelineError):
             parse_agent_output("not json at all")
+
+
+class TestClampStart(unittest.TestCase):
+    def test_in_range_passes_through(self):
+        self.assertEqual(clamp_start(10, 60.0), 10.0)
+
+    def test_negative_clamps_to_zero(self):
+        self.assertEqual(clamp_start(-3, 60.0), 0.0)
+
+    def test_too_late_clamps_to_last_window(self):
+        self.assertEqual(clamp_start(50, 60.0), 45.0)
+
+    def test_garbage_becomes_zero(self):
+        self.assertEqual(clamp_start("abc", 60.0), 0.0)
+        self.assertEqual(clamp_start(None, 60.0), 0.0)
+
+    def test_unknown_duration_keeps_nonnegative_start(self):
+        self.assertEqual(clamp_start(3, None), 3.0)
+        self.assertEqual(clamp_start(-1, None), 0.0)
+
+    def test_short_video_always_zero(self):
+        self.assertEqual(clamp_start(4, 12.0), 0.0)
 
 
 class TestDescribeToolEvent(unittest.TestCase):

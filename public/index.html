@@ -26,6 +26,8 @@
   @keyframes spin { to { transform:rotate(360deg); } }
   video { margin-top:24px; width:100%; max-height:70vh; border-radius:16px; background:#000; }
   a.dl { display:inline-block; margin-top:12px; color:#a99cff; }
+  #picker input[type=range] { width:100%; margin-top:14px; accent-color:#7c6cf2; }
+  #rangeLabel { margin:8px 0 14px; color:#c9c5d8; }
 </style>
 </head>
 <body>
@@ -37,17 +39,31 @@
     <button id="go" type="submit">Replicate</button>
   </form>
   <div id="status"></div>
+  <div id="picker" hidden>
+    <video id="pickVideo" muted playsinline></video>
+    <input id="startRange" type="range" min="0" max="0" step="0.1" value="0">
+    <div id="rangeLabel"></div>
+    <button id="useClip" type="button">Use this part</button>
+  </div>
   <div id="result"></div>
 </main>
 <script>
 const f = document.getElementById("f"), urlEl = document.getElementById("url"),
       go = document.getElementById("go"), statusEl = document.getElementById("status"),
-      resultEl = document.getElementById("result");
-let timer = null, ticker = null, startTime = null, lastDetail = "";
+      resultEl = document.getElementById("result"),
+      picker = document.getElementById("picker"), pickVideo = document.getElementById("pickVideo"),
+      startRange = document.getElementById("startRange"), rangeLabel = document.getElementById("rangeLabel"),
+      useClip = document.getElementById("useClip");
+const WINDOW = 15;
+let timer = null, ticker = null, startTime = null, lastDetail = "", jobId = null;
+
+function fmtClock(totalSeconds) {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
 
 function fmtElapsed() {
-  const s = Math.max(0, Math.floor((Date.now() - startTime) / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  return fmtClock((Date.now() - startTime) / 1000);
 }
 
 function setStatus(text, { spin = false, error = false } = {}) {
@@ -62,6 +78,75 @@ function stopTimers() {
   timer = ticker = null;
 }
 
+function startPolling() {
+  timer = setInterval(() => poll(jobId), 2000);
+  ticker = setInterval(() => { if (startTime) setStatus(lastDetail, { spin: true }); }, 1000);
+}
+
+function hidePicker() {
+  picker.hidden = true;
+  pickVideo.pause();
+  pickVideo.removeAttribute("src");
+  pickVideo.load();
+}
+
+function clipStart() { return parseFloat(startRange.value) || 0; }
+
+function updateRangeLabel() {
+  const s = clipStart();
+  rangeLabel.textContent = `Using ${fmtClock(s)} → ${fmtClock(s + WINDOW)} of the reel`;
+}
+
+function showPicker(job) {
+  stopTimers(); startTime = null;
+  setStatus(job.detail || "Pick which 15 seconds to use.");
+  startRange.max = Math.max(0, job.duration - WINDOW).toFixed(1);
+  startRange.value = 0;
+  updateRangeLabel();
+  pickVideo.src = job.reelUrl;
+  picker.hidden = false;
+  pickVideo.play().catch(() => {});
+}
+
+startRange.addEventListener("input", () => {
+  updateRangeLabel();
+  pickVideo.currentTime = clipStart();
+});
+
+// Preview loops only the selected 15s window.
+pickVideo.addEventListener("timeupdate", () => {
+  if (picker.hidden) return;
+  const s = clipStart();
+  if (pickVideo.currentTime > s + WINDOW || pickVideo.currentTime < s - 0.4) {
+    pickVideo.currentTime = s;
+    pickVideo.play().catch(() => {});
+  }
+});
+pickVideo.addEventListener("ended", () => {
+  if (!picker.hidden) { pickVideo.currentTime = clipStart(); pickVideo.play().catch(() => {}); }
+});
+
+useClip.addEventListener("click", async () => {
+  useClip.disabled = true;
+  try {
+    const r = await fetch(`/api/jobs/${jobId}/clip`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ start: clipStart() }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || "Request failed");
+    hidePicker();
+    startTime = Date.now(); lastDetail = "Clipping your selection…";
+    setStatus(lastDetail, { spin: true });
+    startPolling();
+  } catch (err) {
+    setStatus(err.message, { error: true });
+  } finally {
+    useClip.disabled = false;
+  }
+});
+
 async function poll(jobId) {
   try {
     const r = await fetch(`/api/jobs/${jobId}`);
@@ -73,6 +158,8 @@ async function poll(jobId) {
       resultEl.innerHTML =
         `<video controls autoplay loop src="${job.resultUrl}"></video>` +
         `<a class="dl" href="${job.resultUrl}" download>Download video</a>`;
+    } else if (job.status === "awaiting_selection") {
+      if (picker.hidden) showPicker(job);
     } else if (job.status === "error") {
       stopTimers(); startTime = null; go.disabled = false;
       setStatus(job.error || "Something went wrong.", { error: true });
@@ -86,6 +173,7 @@ async function poll(jobId) {
 f.addEventListener("submit", async (e) => {
   e.preventDefault();
   resultEl.innerHTML = ""; go.disabled = true;
+  hidePicker();
   stopTimers(); startTime = Date.now(); lastDetail = "Starting…";
   setStatus(lastDetail, { spin: true });
   try {
@@ -96,8 +184,8 @@ f.addEventListener("submit", async (e) => {
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || "Request failed");
-    timer = setInterval(() => poll(data.jobId), 2000);
-    ticker = setInterval(() => { if (startTime) setStatus(lastDetail, { spin: true }); }, 1000);
+    jobId = data.jobId;
+    startPolling();
   } catch (err) {
     stopTimers(); startTime = null; go.disabled = false;
     setStatus(err.message, { error: true });

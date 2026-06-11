@@ -1,6 +1,7 @@
 """Tiny stdlib web server for the reel-replicate app. No dependencies."""
 import json
 import os
+import re
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -10,8 +11,12 @@ from app import pipeline
 PORT = 8787
 PUBLIC_DIR = os.path.join(pipeline.ROOT, "public")
 
-_jobs = {}
+_jobs = {}            # job_id -> public state (returned by /api/jobs/<id>)
+_job_files = {}       # job_id -> {path, duration} kept server-side only
 _jobs_lock = threading.Lock()
+
+_CLIP_PATH = re.compile(r"^/api/jobs/([0-9a-f]{12})/clip$")
+_WORK_PATH = re.compile(r"^/work/([0-9a-f]{12})/reel\.mp4$")
 
 
 def _set_job(job_id, **fields):
@@ -19,18 +24,47 @@ def _set_job(job_id, **fields):
         _jobs.setdefault(job_id, {}).update(fields)
 
 
-def _run(job_id, url):
+def _progress(job_id):
     def progress(step, detail):
         _set_job(job_id, status="running", step=step, detail=detail)
+    return progress
+
+
+def _run_start(job_id, url):
     try:
-        out_path = pipeline.run_job(job_id, url, progress)
-        _set_job(job_id, status="done", step="done",
-                 detail="Your reel is ready!",
-                 resultUrl="/output/%s" % os.path.basename(out_path))
+        info = pipeline.start_job(job_id, url, _progress(job_id))
+        if info["needs_selection"]:
+            with _jobs_lock:
+                _job_files[job_id] = info
+            _set_job(
+                job_id, status="awaiting_selection", step="selecting",
+                detail="This reel is %ds — pick which 15 seconds to use."
+                       % round(info["duration"]),
+                reelUrl="/work/%s/reel.mp4" % job_id,
+                duration=info["duration"])
+            return
+        _finish(job_id, info, 0.0)
     except pipeline.PipelineError as exc:
         _set_job(job_id, status="error", error=str(exc))
     except Exception as exc:  # surface anything unexpected to the UI
         _set_job(job_id, status="error", error="Unexpected error: %s" % exc)
+
+
+def _run_finish(job_id, info, start):
+    try:
+        _finish(job_id, info, start)
+    except pipeline.PipelineError as exc:
+        _set_job(job_id, status="error", error=str(exc))
+    except Exception as exc:
+        _set_job(job_id, status="error", error="Unexpected error: %s" % exc)
+
+
+def _finish(job_id, info, start):
+    out_path = pipeline.finish_job(
+        job_id, info["path"], info["duration"], start, _progress(job_id))
+    _set_job(job_id, status="done", step="done",
+             detail="Your reel is ready!",
+             resultUrl="/output/%s" % os.path.basename(out_path))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -43,19 +77,42 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _file(self, path, content_type):
+        """Serve a file with byte-range support (Safari needs 206 for video)."""
         try:
-            with open(path, "rb") as fh:
-                body = fh.read()
+            size = os.path.getsize(path)
+            fh = open(path, "rb")
         except OSError:
             self.send_error(404)
             return
-        self.send_response(200)
+        with fh:
+            start, end, code = 0, size - 1, 200
+            range_match = re.match(
+                r"bytes=(\d*)-(\d*)$", (self.headers.get("Range") or "").strip())
+            if range_match and (range_match.group(1) or range_match.group(2)):
+                if range_match.group(1):
+                    start = int(range_match.group(1))
+                    if range_match.group(2):
+                        end = min(int(range_match.group(2)), size - 1)
+                else:  # suffix form: last N bytes
+                    start = max(0, size - int(range_match.group(2)))
+                if start >= size or start > end:
+                    self.send_error(416)
+                    return
+                code = 206
+            fh.seek(start)
+            body = fh.read(end - start + 1)
+        self.send_response(code)
+        if code == 206:
+            self.send_header("Content-Range",
+                             "bytes %d-%d/%d" % (start, end, size))
+        self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
     def do_GET(self):
+        work_match = _WORK_PATH.match(self.path)
         if self.path in ("/", "/index.html"):
             self._file(os.path.join(PUBLIC_DIR, "index.html"),
                        "text/html; charset=utf-8")
@@ -67,6 +124,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, job)
             else:
                 self._json(404, {"error": "unknown job"})
+        elif work_match:
+            self._file(os.path.join(pipeline.WORK_DIR, work_match.group(1),
+                                    "reel.mp4"), "video/mp4")
         elif self.path.startswith("/output/"):
             name = os.path.basename(self.path)  # no traversal
             self._file(os.path.join(pipeline.OUTPUT_DIR, name), "video/mp4")
@@ -74,23 +134,50 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
-        if self.path != "/api/replicate":
-            self.send_error(404)
-            return
         length = int(self.headers.get("Content-Length") or 0)
         try:
             data = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            self._json(400, {"error": "Invalid request body."})
+            return
+
+        clip_match = _CLIP_PATH.match(self.path)
+        if clip_match:
+            self._post_clip(clip_match.group(1), data)
+        elif self.path == "/api/replicate":
+            self._post_replicate(data)
+        else:
+            self.send_error(404)
+
+    def _post_replicate(self, data):
+        try:
             url = pipeline.validate_reel_url(data.get("reelUrl"))
         except pipeline.PipelineError as exc:
             self._json(400, {"error": str(exc)})
             return
-        except ValueError:
-            self._json(400, {"error": "Invalid request body."})
-            return
         job_id = uuid.uuid4().hex[:12]
         _set_job(job_id, status="running", step="starting", detail="Starting…")
-        threading.Thread(target=_run, args=(job_id, url), daemon=True).start()
+        threading.Thread(target=_run_start, args=(job_id, url),
+                         daemon=True).start()
         self._json(202, {"jobId": job_id})
+
+    def _post_clip(self, job_id, data):
+        with _jobs_lock:
+            job = dict(_jobs.get(job_id) or {})
+            info = _job_files.get(job_id)
+        if not job or info is None:
+            self._json(404, {"error": "unknown job"})
+            return
+        if job.get("status") != "awaiting_selection":
+            self._json(409, {"error": "This job isn't waiting on a clip choice."})
+            return
+        start = pipeline.clamp_start(data.get("start"), info["duration"])
+        _set_job(job_id, status="running", step="preparing",
+                 detail="Clipping from %0.1fs…" % start,
+                 reelUrl=None)
+        threading.Thread(target=_run_finish, args=(job_id, info, start),
+                         daemon=True).start()
+        self._json(202, {"jobId": job_id, "start": start})
 
     def log_message(self, fmt, *args):  # keep the console quiet while polling
         if "/api/jobs/" not in (args[0] if args else ""):
