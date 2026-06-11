@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from app.claude_swap import parse_agent_output
+from app.claude_swap import describe_tool_event, parse_agent_output
 from app.pipeline import PipelineError, plan_trim, validate_reel_url
 
 
@@ -72,6 +72,28 @@ class TestParseAgentOutput(unittest.TestCase):
     def test_garbage_raises(self):
         with self.assertRaises(PipelineError):
             parse_agent_output("not json at all")
+
+
+class TestDescribeToolEvent(unittest.TestCase):
+    def test_upload_tools(self):
+        self.assertIn("Uploading", describe_tool_event("mcp__higgsfield__upload_file"))
+
+    def test_bash_is_upload_command(self):
+        self.assertIn("Uploading", describe_tool_event("Bash"))
+
+    def test_model_catalog(self):
+        self.assertIn("model", describe_tool_event("mcp__higgsfield__list_models"))
+
+    def test_generation_submit(self):
+        self.assertIn("submitted", describe_tool_event("mcp__higgsfield__create_generation"))
+
+    def test_polling(self):
+        self.assertIn("Rendering", describe_tool_event("mcp__higgsfield__get_generation_status"))
+        self.assertIn("Rendering", describe_tool_event("mcp__higgsfield__wait_for_job"))
+
+    def test_unknown_returns_none(self):
+        self.assertIsNone(describe_tool_event("TodoWrite"))
+        self.assertIsNone(describe_tool_event(""))
 
 
 if __name__ == "__main__":

@@ -129,7 +129,9 @@ def run_job(job_id, url, progress):
     progress("swapping",
              "Claude + Higgsfield are re-casting you into the reel "
              "(this can take several minutes)…")
-    video_url = claude_swap.swap(clip, USER_PHOTO)
+    video_url = claude_swap.swap(
+        clip, USER_PHOTO,
+        progress=lambda detail: progress("swapping", detail))
 
     progress("saving", "Downloading your generated video…")
     return save_result(video_url, job_id)
