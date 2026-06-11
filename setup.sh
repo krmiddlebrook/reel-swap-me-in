@@ -53,9 +53,10 @@ if [ "$FACE_RESTORE" = "1" ]; then
     Linux-aarch64|Linux-arm64) UV_PKG="uv-aarch64-unknown-linux-gnu" ;;
     Linux-x86_64)              UV_PKG="uv-x86_64-unknown-linux-gnu" ;;
   esac
+  UV_VERSION=0.11.20
   if [ ! -x vendor/uv ]; then
-    echo "Fetching uv ($UV_PKG)…"
-    curl -fL "https://github.com/astral-sh/uv/releases/latest/download/$UV_PKG.tar.gz" | tar -xz -C vendor
+    echo "Fetching uv $UV_VERSION ($UV_PKG)…"
+    curl -fL "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/$UV_PKG.tar.gz" | tar -xz -C vendor
     mv "vendor/$UV_PKG/uv" vendor/uv
     rm -rf "vendor/$UV_PKG"
   fi

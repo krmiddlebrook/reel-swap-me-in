@@ -171,15 +171,19 @@ facesInput.addEventListener("change", async () => {
   const files = [...facesInput.files];
   facesInput.value = "";
   let saved = 0, error = null;
-  for (const file of files) {
-    const r = await fetch("/api/faces", {
-      method: "POST",
-      headers: { "Content-Type": file.type || "application/octet-stream" },
-      body: file,
-    });
-    const d = await r.json();
-    if (!r.ok) { error = d.error; break; }
-    saved++;
+  try {
+    for (const file of files) {
+      const r = await fetch("/api/faces", {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      const d = await r.json();
+      if (!r.ok) { error = d.error || "Upload failed"; break; }
+      saved++;
+    }
+  } catch (err) {
+    error = err.message;
   }
   if (error) setStatus(error, { error: true });
   else setStatus(`${saved} face photo${saved === 1 ? "" : "s"} added ✓ — varied angles and lighting help most.`);
@@ -297,8 +301,11 @@ async function poll(jobId) {
     const job = await r.json();
     if (job.status === "done") {
       stopTimers(); go.disabled = false;
+      // job.warning can carry raw subprocess output — escape it.
+      const esc = (s) => s.replace(/[&<>]/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
       setStatus(`Done in ${fmtElapsed()} — here's you:` +
-                (job.warning ? ` (${job.warning})` : ""));
+                (job.warning ? ` (${esc(job.warning)})` : ""));
       startTime = null;
       resultEl.innerHTML =
         `<video controls autoplay loop src="${job.resultUrl}"></video>` +

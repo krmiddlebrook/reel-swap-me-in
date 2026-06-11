@@ -267,8 +267,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _post_faces_clear(self):
         for path in face_restore.extra_photos():
-            os.remove(path)
-        self._json(200, {"ok": True, "extraFaces": 0})
+            try:
+                os.remove(path)
+            except OSError:
+                pass  # already gone (e.g. concurrent clear)
+        self._json(200, {"ok": True,
+                         "extraFaces": len(face_restore.extra_photos())})
 
     def _post_replicate(self, data):
         from app import higgsfield

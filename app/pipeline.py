@@ -233,17 +233,19 @@ def save_result(video_url, job_id):
 
 def restore_faces(raw_path, job_id, progress):
     """Local FaceFusion pass that puts the user's real face back onto the
-    swapped video. The swap already cost credits, so a failure here keeps
-    the raw video and surfaces a warning instead of failing the job."""
+    swapped video. The swap already cost credits, so ANY failure here keeps
+    the raw video and surfaces a warning instead of failing the job (the
+    "warning" step is stored separately by the server and shown next to
+    the finished video)."""
     from app import face_restore
 
-    photos = face_restore.source_photos(user_photo())
     restored = os.path.join(OUTPUT_DIR, "%s-restored.mp4" % job_id)
     try:
+        photos = face_restore.source_photos(user_photo())
         return face_restore.restore(
             raw_path, restored, photos,
             progress=lambda detail: progress("restoring", detail))
-    except face_restore.FaceRestoreError as exc:
+    except Exception as exc:
         progress("warning",
                  "Face restore failed (%s) — kept the unrestored video."
                  % str(exc)[:160])

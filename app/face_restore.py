@@ -6,10 +6,10 @@ that for free, locally.
 Optional — runs only when ./setup.sh --face-restore has vendored the
 tooling (standalone Python + FaceFusion) under vendor/.
 """
-import glob
 import os
 import platform
 import subprocess
+import threading
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN_DIR = os.path.join(ROOT, "bin")
@@ -20,6 +20,10 @@ FF_PYTHON = os.path.join(VENDOR_DIR, "ff-venv", "bin", "python")
 FACES_DIR = os.path.join(ROOT, "assets", "faces")
 MAX_EXTRA_PHOTOS = 9
 TIMEOUT_SECONDS = 2 * 60 * 60
+
+# One restore at a time: concurrent multi-GB ONNX inference thrashes the
+# machine, and parallel CoreML model compilation is flaky.
+_RUN_LOCK = threading.Lock()
 
 
 class FaceRestoreError(Exception):
@@ -33,10 +37,12 @@ def available():
 
 def extra_photos():
     """Extra face photos under assets/faces/, in stable order."""
-    paths = []
-    for ext in ("jpg", "jpeg", "png"):
-        paths.extend(glob.glob(os.path.join(FACES_DIR, "*." + ext)))
-    return sorted(paths)
+    try:
+        names = os.listdir(FACES_DIR)
+    except OSError:
+        return []
+    return sorted(os.path.join(FACES_DIR, name) for name in names
+                  if name.lower().endswith((".jpg", ".jpeg", ".png")))
 
 
 def source_photos(primary):
@@ -83,26 +89,36 @@ def restore(video_path, output_path, photos, progress=None):
     env = dict(os.environ)
     env["PATH"] = BIN_DIR + os.pathsep + env.get("PATH", "")  # vendored ffmpeg
     last_error = ""
-    for provider in providers():
-        if progress:
-            progress("Restoring your face onto the video — local and free, "
-                     "takes ~1 min per second of video%s…"
-                     % (" (first run also downloads models)"
-                        if provider == providers()[0] else ", retrying on CPU"))
-        try:
-            proc = subprocess.run(
-                build_command(photos, video_path, output_path, provider),
-                cwd=FF_DIR, env=env, capture_output=True, text=True,
-                timeout=TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired:
-            raise FaceRestoreError("face restore timed out")
-        except OSError as exc:
-            raise FaceRestoreError("couldn't launch face restore: %s" % exc)
-        if proc.returncode == 0 and os.path.exists(output_path):
-            return output_path
-        last_error = ((proc.stderr or "") + (proc.stdout or "")).strip()
-        last_error = last_error.replace("\r", "\n").splitlines()[-1:]
-        last_error = last_error[0][-160:] if last_error else ""
+    with _RUN_LOCK:
+        for provider in providers():
+            if progress:
+                progress("Restoring your face onto the video — local and "
+                         "free, takes ~1 min per second of video%s…"
+                         % (" (first run also downloads models)"
+                            if provider == providers()[0]
+                            else ", retrying on CPU"))
+            try:
+                proc = subprocess.run(
+                    build_command(photos, video_path, output_path, provider),
+                    cwd=FF_DIR, env=env, capture_output=True, text=True,
+                    timeout=TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                # No CPU retry after a timeout: an even slower provider
+                # won't beat a 2-hour deadline.
+                raise FaceRestoreError("face restore timed out")
+            except OSError as exc:
+                raise FaceRestoreError(
+                    "couldn't launch face restore: %s" % exc)
+            if proc.returncode == 0 and os.path.exists(output_path):
+                return output_path
+            last_error = _last_line(proc.stderr) or _last_line(proc.stdout)
     raise FaceRestoreError(
         "face restore failed%s" % ((": %s" % last_error) if last_error
                                    else ""))
+
+
+def _last_line(text):
+    """Last non-empty line of subprocess output, trimmed for display."""
+    lines = [ln.strip() for ln in (text or "").replace("\r", "\n").splitlines()
+             if ln.strip()]
+    return lines[-1][-160:] if lines else ""
