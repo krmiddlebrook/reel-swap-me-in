@@ -26,6 +26,11 @@
   @keyframes spin { to { transform:rotate(360deg); } }
   video { margin-top:24px; width:100%; max-height:70vh; border-radius:16px; background:#000; }
   a.dl { display:inline-block; margin-top:12px; color:#a99cff; }
+  #setup .card { display:flex; align-items:center; justify-content:space-between;
+                 gap:12px; margin-top:12px; padding:12px 16px; border-radius:12px;
+                 border:1px solid #2c2a36; background:#17151e; font-size:14px;
+                 color:#c9c5d8; text-align:left; }
+  #setup button { padding:9px 14px; font-size:13.5px; white-space:nowrap; }
   #engineRow { margin-top:14px; display:flex; gap:18px; justify-content:center;
                font-size:13.5px; color:#c9c5d8; }
   #engineRow input { accent-color:#7c6cf2; margin-right:5px; }
@@ -44,6 +49,17 @@
     <input id="url" type="url" placeholder="https://www.instagram.com/reel/…" required>
     <button id="go" type="submit">Replicate</button>
   </form>
+  <div id="setup" hidden>
+    <div class="card" id="authCard" hidden>
+      <span>1 · Connect your Higgsfield account</span>
+      <button id="connectBtn" type="button">Connect Higgsfield</button>
+    </div>
+    <div class="card" id="photoCard" hidden>
+      <span>2 · Add a clear, front-facing photo of you</span>
+      <button id="photoBtn" type="button">Choose photo</button>
+      <input id="photoInput" type="file" accept="image/jpeg,image/png" hidden>
+    </div>
+  </div>
   <div id="engineRow">
     <label><input type="radio" name="engine" value="kling" checked> Kling motion control</label>
     <label><input type="radio" name="engine" value="seedance"> Seedance 2.0 <span class="tag">experimental</span></label>
@@ -67,8 +83,57 @@ const f = document.getElementById("f"), urlEl = document.getElementById("url"),
       picker = document.getElementById("picker"), pickVideo = document.getElementById("pickVideo"),
       startRange = document.getElementById("startRange"), rangeLabel = document.getElementById("rangeLabel"),
       lengthRange = document.getElementById("lengthRange"), useClip = document.getElementById("useClip");
+const setupEl = document.getElementById("setup"), authCard = document.getElementById("authCard"),
+      photoCard = document.getElementById("photoCard"), connectBtn = document.getElementById("connectBtn"),
+      photoBtn = document.getElementById("photoBtn"), photoInput = document.getElementById("photoInput");
 const MIN_LEN = 5, MAX_LEN = 15;
 let timer = null, ticker = null, startTime = null, lastDetail = "", jobId = null, reelDuration = 0;
+let statusTimer = null;
+
+async function refreshStatus() {
+  try {
+    const s = await (await fetch("/api/status")).json();
+    const ready = s.connected && s.photo;
+    authCard.hidden = s.connected;
+    photoCard.hidden = !!s.photo;
+    setupEl.hidden = ready;
+    if (ready) {
+      if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+      if (!timer) go.disabled = false;   // don't re-enable mid-run
+    } else {
+      go.disabled = true;
+    }
+  } catch { /* server starting up — retry on next tick */ }
+}
+
+connectBtn.addEventListener("click", async () => {
+  try {
+    const r = await fetch("/api/auth/start", { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "Couldn't start the login");
+    window.open(d.authUrl, "_blank");
+    setStatus("Finish the Higgsfield login in the new tab…");
+  } catch (err) {
+    setStatus(err.message, { error: true });
+  }
+});
+
+photoBtn.addEventListener("click", () => photoInput.click());
+photoInput.addEventListener("change", async () => {
+  const file = photoInput.files[0];
+  if (!file) return;
+  const r = await fetch("/api/photo", {
+    method: "POST",
+    headers: { "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+  const d = await r.json();
+  if (!r.ok) setStatus(d.error || "Photo upload failed", { error: true });
+  else { setStatus("Photo saved ✓"); refreshStatus(); }
+});
+
+refreshStatus();
+statusTimer = setInterval(refreshStatus, 3000);
 
 function fmtClock(totalSeconds) {
   const s = Math.max(0, Math.floor(totalSeconds));

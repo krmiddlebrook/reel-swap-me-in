@@ -3,10 +3,11 @@ import json
 import os
 import re
 import threading
+import urllib.parse
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from app import pipeline
+from app import oauth, pipeline
 
 PORT = 8787
 PUBLIC_DIR = os.path.join(pipeline.ROOT, "public")
@@ -17,6 +18,21 @@ _jobs_lock = threading.Lock()
 
 _CLIP_PATH = re.compile(r"^/api/jobs/([0-9a-f]{12})/clip$")
 _WORK_PATH = re.compile(r"^/work/([0-9a-f]{12})/reel\.mp4$")
+
+
+def _status():
+    """Setup state for the UI banner."""
+    if oauth.connected():
+        connected, source = True, "app"
+    else:
+        try:
+            from app import higgsfield
+            higgsfield._read_credentials()
+            connected, source = True, "claude"
+        except Exception:
+            connected, source = False, None
+    return {"connected": connected, "source": source,
+            "photo": bool(pipeline.user_photo())}
 
 
 def _set_job(job_id, **fields):
@@ -118,6 +134,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in ("/", "/index.html"):
             self._file(os.path.join(PUBLIC_DIR, "index.html"),
                        "text/html; charset=utf-8")
+        elif self.path == "/api/status":
+            self._json(200, _status())
+        elif self.path.startswith("/oauth/callback"):
+            self._get_oauth_callback()
         elif self.path.startswith("/api/jobs/"):
             job_id = self.path.rsplit("/", 1)[-1]
             with _jobs_lock:
@@ -136,6 +156,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
+        if self.path == "/api/photo":
+            self._post_photo()
+            return
+        if self.path == "/api/auth/start":
+            self._post_auth_start()
+            return
         length = int(self.headers.get("Content-Length") or 0)
         try:
             data = json.loads(self.rfile.read(length) or b"{}")
@@ -150,6 +176,59 @@ class Handler(BaseHTTPRequestHandler):
             self._post_replicate(data)
         else:
             self.send_error(404)
+
+    def _post_auth_start(self):
+        try:
+            self._json(200, {"authUrl": oauth.begin_login(PORT)})
+        except pipeline.PipelineError as exc:
+            self._json(502, {"error": str(exc)})
+
+    def _get_oauth_callback(self):
+        query = urllib.parse.parse_qs(
+            urllib.parse.urlparse(self.path).query)
+        code = (query.get("code") or [""])[0]
+        state = (query.get("state") or [""])[0]
+        error = (query.get("error") or [""])[0]
+        if error or not code:
+            message = "Login failed: %s — close this tab and try again." \
+                      % (error or "no code returned")
+        else:
+            try:
+                oauth.handle_callback(code, state, PORT)
+                message = ("Higgsfield connected ✓ — you can close this tab "
+                           "and head back to Reel Swap Me In.")
+            except pipeline.PipelineError as exc:
+                message = "Login failed: %s" % exc
+        body = ("<!doctype html><meta charset='utf-8'><body style=\""
+                "font-family:sans-serif;background:#0e0d12;color:#f3f1ec;"
+                "display:flex;align-items:center;justify-content:center;"
+                "min-height:100vh;text-align:center\"><h3>%s</h3></body>"
+                % message).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _post_photo(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > 20 * 1024 * 1024:
+            self._json(400, {"error": "Photo must be a file under 20 MB."})
+            return
+        data = self.rfile.read(length)
+        ext = pipeline.detect_image_ext(data)
+        if not ext:
+            self._json(400, {"error": "Please upload a JPEG or PNG photo."})
+            return
+        assets = os.path.join(pipeline.ROOT, "assets")
+        os.makedirs(assets, exist_ok=True)
+        for old in ("me.jpg", "me.jpeg", "me.png"):
+            old_path = os.path.join(assets, old)
+            if os.path.exists(old_path):
+                os.remove(old_path)
+        with open(os.path.join(assets, "me" + ext), "wb") as fh:
+            fh.write(data)
+        self._json(200, {"ok": True})
 
     def _post_replicate(self, data):
         from app import higgsfield

@@ -11,7 +11,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN_DIR = os.path.join(ROOT, "bin")
 YTDLP = os.path.join(BIN_DIR, "yt-dlp")
 FFMPEG = os.path.join(BIN_DIR, "ffmpeg")
-USER_PHOTO = os.path.join(ROOT, "assets", "me.jpg")
+def user_photo():
+    """Path of the stored user photo (me.jpg/jpeg/png), or None."""
+    for ext in ("jpg", "jpeg", "png"):
+        path = os.path.join(ROOT, "assets", "me." + ext)
+        if os.path.exists(path):
+            return path
+    return None
 WORK_DIR = os.path.join(ROOT, "work")
 OUTPUT_DIR = os.path.join(ROOT, "output")
 
@@ -91,10 +97,10 @@ def _require_setup():
     if missing:
         raise PipelineError(
             "Missing %s — run ./setup.sh first." % " and ".join(missing))
-    if not os.path.exists(USER_PHOTO):
+    if not user_photo():
         raise PipelineError(
-            "No photo found — save a clear front-facing photo of yourself "
-            "as assets/me.jpg.")
+            "No photo found — add one in the page at http://localhost:8787 "
+            "(or save it as assets/me.jpg).")
 
 
 def download_reel(url, job_dir):
@@ -143,7 +149,7 @@ SHEET_META = os.path.join(ROOT, "assets", "character-sheet.json")
 
 def _sheet_cache():
     """Return {"path", "ref_id"} when a sheet newer than the photo exists."""
-    photo_mtime = os.path.getmtime(USER_PHOTO)
+    photo_mtime = os.path.getmtime(user_photo())
     path = None
     for cand in glob.glob(os.path.join(ROOT, "assets", "character-sheet.*")):
         if cand.endswith(".json"):
@@ -177,11 +183,12 @@ def ensure_character_sheet(progress):
         return cached
     progress("sheet", "Creating your character sheet "
                       "(happens once per photo)…")
-    photo_mtime = os.path.getmtime(USER_PHOTO)
+    photo = user_photo()
+    photo_mtime = os.path.getmtime(photo)
     ref_id = None
     try:
         client = higgsfield.Client()
-        photo_id = higgsfield.upload_file(client, USER_PHOTO)
+        photo_id = higgsfield.upload_file(client, photo)
         job_id = higgsfield.generate_sheet(client, photo_id)
         url = higgsfield.wait_for_job(
             client, job_id, higgsfield.IMAGE_EXTS,
@@ -193,7 +200,7 @@ def ensure_character_sheet(progress):
         progress("sheet", "Direct Higgsfield call failed (%s) — using the "
                           "Claude agent instead…" % str(exc)[:80])
         url = claude_swap.create_character_sheet(
-            USER_PHOTO, progress=lambda detail: progress("sheet", detail))
+            photo, progress=lambda detail: progress("sheet", detail))
     ext = os.path.splitext(urllib.parse.urlparse(url).path)[1] or ".png"
     sheet_path = os.path.join(ROOT, "assets", "character-sheet" + ext)
     try:
