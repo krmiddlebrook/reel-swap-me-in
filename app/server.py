@@ -7,7 +7,7 @@ import urllib.parse
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from app import face_restore, oauth, pipeline
+from app import face_restore, oauth, photos, pipeline
 
 PORT = 8787
 PUBLIC_DIR = os.path.join(pipeline.ROOT, "public")
@@ -42,7 +42,7 @@ def _status():
     return {"connected": connected, "source": source,
             "photo": bool(pipeline.user_photo()),
             "faceRestore": face_restore.available(),
-            "extraFaces": len(face_restore.extra_photos())}
+            "extraFaces": len(photos.extra_photos())}
 
 
 def _set_job(job_id, **fields):
@@ -272,25 +272,25 @@ class Handler(BaseHTTPRequestHandler):
         if not ext:
             self._json(400, {"error": "Please upload a JPEG or PNG photo."})
             return
-        if len(face_restore.extra_photos()) >= face_restore.MAX_EXTRA_PHOTOS:
+        if len(photos.extra_photos()) >= photos.MAX_EXTRAS:
             self._json(400, {"error": "That's plenty — %d extra photos max."
-                                      % face_restore.MAX_EXTRA_PHOTOS})
+                                      % photos.MAX_EXTRAS})
             return
-        os.makedirs(face_restore.FACES_DIR, exist_ok=True)
+        os.makedirs(photos.FACES_DIR, exist_ok=True)
         name = "face-%s%s" % (uuid.uuid4().hex[:8], ext)
-        with open(os.path.join(face_restore.FACES_DIR, name), "wb") as fh:
+        with open(os.path.join(photos.FACES_DIR, name), "wb") as fh:
             fh.write(data)
         self._json(200, {"ok": True,
-                         "extraFaces": len(face_restore.extra_photos())})
+                         "extraFaces": len(photos.extra_photos())})
 
     def _post_faces_clear(self):
-        for path in face_restore.extra_photos():
+        for path in photos.extra_photos():
             try:
                 os.remove(path)
             except OSError:
                 pass  # already gone (e.g. concurrent clear)
         self._json(200, {"ok": True,
-                         "extraFaces": len(face_restore.extra_photos())})
+                         "extraFaces": len(photos.extra_photos())})
 
     def _post_replicate(self, data):
         from app import higgsfield

@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from app import face_restore
+from app import face_restore, photos
 
 
 class TestBuildCommand(unittest.TestCase):
@@ -38,13 +38,13 @@ class TestProviders(unittest.TestCase):
 
 class TestSourcePhotos(unittest.TestCase):
     def test_primary_first_then_extras(self):
-        with mock.patch.object(face_restore, "extra_photos",
+        with mock.patch.object(photos, "extra_photos",
                                return_value=["x/a.jpg", "x/b.jpg"]):
             self.assertEqual(face_restore.source_photos("me.jpg"),
                              ["me.jpg", "x/a.jpg", "x/b.jpg"])
 
     def test_primary_not_duplicated(self):
-        with mock.patch.object(face_restore, "extra_photos",
+        with mock.patch.object(photos, "extra_photos",
                                return_value=["me.jpg", "x/a.jpg"]):
             self.assertEqual(face_restore.source_photos("me.jpg"),
                              ["me.jpg", "x/a.jpg"])

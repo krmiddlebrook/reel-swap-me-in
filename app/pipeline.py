@@ -14,11 +14,8 @@ YTDLP = os.path.join(BIN_DIR, "yt-dlp")
 FFMPEG = os.path.join(BIN_DIR, "ffmpeg")
 def user_photo():
     """Path of the stored user photo (me.jpg/jpeg/png), or None."""
-    for ext in ("jpg", "jpeg", "png"):
-        path = os.path.join(ROOT, "assets", "me." + ext)
-        if os.path.exists(path):
-            return path
-    return None
+    from app import photos
+    return photos.main_photo()
 WORK_DIR = os.path.join(ROOT, "work")
 OUTPUT_DIR = os.path.join(ROOT, "output")
 

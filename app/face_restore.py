@@ -11,14 +11,14 @@ import platform
 import subprocess
 import threading
 
+from app import photos
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN_DIR = os.path.join(ROOT, "bin")
 VENDOR_DIR = os.path.join(ROOT, "vendor")
 FF_DIR = os.path.join(VENDOR_DIR, "facefusion")
 FF_SCRIPT = os.path.join(FF_DIR, "facefusion.py")
 FF_PYTHON = os.path.join(VENDOR_DIR, "ff-venv", "bin", "python")
-FACES_DIR = os.path.join(ROOT, "assets", "faces")
-MAX_EXTRA_PHOTOS = 9
 TIMEOUT_SECONDS = 2 * 60 * 60
 
 # One restore at a time: concurrent multi-GB ONNX inference thrashes the
@@ -35,20 +35,10 @@ def available():
     return os.path.exists(FF_SCRIPT) and os.path.exists(FF_PYTHON)
 
 
-def extra_photos():
-    """Extra face photos under assets/faces/, in stable order."""
-    try:
-        names = os.listdir(FACES_DIR)
-    except OSError:
-        return []
-    return sorted(os.path.join(FACES_DIR, name) for name in names
-                  if name.lower().endswith((".jpg", ".jpeg", ".png")))
-
-
 def source_photos(primary):
     """All face photos, primary first. FaceFusion averages the identity
     embeddings across sources, so extra photos improve likeness."""
-    return [primary] + [p for p in extra_photos() if p != primary]
+    return [primary] + [p for p in photos.extra_photos() if p != primary]
 
 
 def providers():
