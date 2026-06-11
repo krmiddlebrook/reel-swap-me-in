@@ -31,10 +31,12 @@
                  border:1px solid #2c2a36; background:#17151e; font-size:14px;
                  color:#c9c5d8; text-align:left; }
   #setup button { padding:9px 14px; font-size:13.5px; white-space:nowrap; }
-  #engineRow { margin-top:14px; display:flex; gap:18px; justify-content:center;
+  #engineRow, #restoreRow { margin-top:14px; display:flex; gap:18px; justify-content:center;
                font-size:13.5px; color:#c9c5d8; }
-  #engineRow input { accent-color:#7c6cf2; margin-right:5px; }
-  #engineRow .tag { font-size:11px; color:#9a96a8; border:1px solid #2c2a36;
+  #restoreRow { margin-top:10px; }
+  #restoreRow[hidden] { display:none; }
+  #engineRow input, #restoreRow input { accent-color:#7c6cf2; margin-right:5px; }
+  #engineRow .tag, #restoreRow .tag { font-size:11px; color:#9a96a8; border:1px solid #2c2a36;
                     border-radius:6px; padding:1px 6px; margin-left:4px; }
   #setupState { margin:8px 0 0; font-size:12px; color:#6f6a80; }
   #setupState a { color:#a99cff; margin-left:8px; }
@@ -66,7 +68,11 @@
     <label><input type="radio" name="engine" value="kling" checked> Kling motion control</label>
     <label><input type="radio" name="engine" value="seedance"> Seedance 2.0 <span class="tag">experimental</span></label>
   </div>
-  <p id="setupState"><span id="setupStateText"></span><a id="changePhoto" href="#" hidden>Change photo</a></p>
+  <div id="restoreRow" hidden>
+    <label><input type="checkbox" id="restoreChk" checked> Restore my face after the swap <span class="tag">local · free · ~1 min/s</span></label>
+  </div>
+  <p id="setupState"><span id="setupStateText"></span><a id="changePhoto" href="#" hidden>Change photo</a><a id="addFaces" href="#" hidden></a><a id="clearFaces" href="#" hidden>clear extras</a></p>
+  <input id="facesInput" type="file" accept="image/jpeg,image/png" multiple hidden>
   <div id="status"></div>
   <div id="picker" hidden>
     <video id="pickVideo" muted playsinline></video>
@@ -89,6 +95,9 @@ const f = document.getElementById("f"), urlEl = document.getElementById("url"),
 const setupEl = document.getElementById("setup"), authCard = document.getElementById("authCard"),
       photoCard = document.getElementById("photoCard"), connectBtn = document.getElementById("connectBtn"),
       photoBtn = document.getElementById("photoBtn"), photoInput = document.getElementById("photoInput");
+const restoreRow = document.getElementById("restoreRow"), restoreChk = document.getElementById("restoreChk"),
+      addFaces = document.getElementById("addFaces"), clearFaces = document.getElementById("clearFaces"),
+      facesInput = document.getElementById("facesInput");
 const MIN_LEN = 5, MAX_LEN = 15;
 let timer = null, ticker = null, startTime = null, lastDetail = "", jobId = null, reelDuration = 0;
 let statusTimer = null;
@@ -104,6 +113,11 @@ async function refreshStatus() {
       ? `Higgsfield connected ✓ (${s.source === "app" ? "in-app login" : "via Claude Code"}) · photo saved ✓`
       : "";
     document.getElementById("changePhoto").hidden = !s.photo;
+    restoreRow.hidden = !s.faceRestore;
+    addFaces.hidden = !(s.faceRestore && s.photo);
+    addFaces.textContent = s.extraFaces
+      ? `Add face photos (${s.extraFaces} extra)` : "Add face photos";
+    clearFaces.hidden = !s.extraFaces;
     if (ready) {
       if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
       if (!timer) go.disabled = false;   // don't re-enable mid-run
@@ -145,6 +159,31 @@ photoInput.addEventListener("change", async () => {
     setStatus("Photo saved ✓ — your character reference will regenerate on the next run (1 credit).");
     refreshStatus();
   }
+});
+
+addFaces.addEventListener("click", (e) => { e.preventDefault(); facesInput.click(); });
+clearFaces.addEventListener("click", async (e) => {
+  e.preventDefault();
+  await fetch("/api/faces/clear", { method: "POST" });
+  refreshStatus();
+});
+facesInput.addEventListener("change", async () => {
+  const files = [...facesInput.files];
+  facesInput.value = "";
+  let saved = 0, error = null;
+  for (const file of files) {
+    const r = await fetch("/api/faces", {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    const d = await r.json();
+    if (!r.ok) { error = d.error; break; }
+    saved++;
+  }
+  if (error) setStatus(error, { error: true });
+  else setStatus(`${saved} face photo${saved === 1 ? "" : "s"} added ✓ — varied angles and lighting help most.`);
+  refreshStatus();
 });
 
 refreshStatus();
@@ -258,7 +297,8 @@ async function poll(jobId) {
     const job = await r.json();
     if (job.status === "done") {
       stopTimers(); go.disabled = false;
-      setStatus(`Done in ${fmtElapsed()} — here's you:`);
+      setStatus(`Done in ${fmtElapsed()} — here's you:` +
+                (job.warning ? ` (${job.warning})` : ""));
       startTime = null;
       resultEl.innerHTML =
         `<video controls autoplay loop src="${job.resultUrl}"></video>` +
@@ -288,6 +328,7 @@ f.addEventListener("submit", async (e) => {
       body: JSON.stringify({
         reelUrl: urlEl.value,
         engine: document.querySelector('input[name="engine"]:checked').value,
+        restore: !restoreRow.hidden && restoreChk.checked,
       }),
     });
     const data = await r.json();

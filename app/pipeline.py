@@ -231,6 +231,25 @@ def save_result(video_url, job_id):
     return out
 
 
+def restore_faces(raw_path, job_id, progress):
+    """Local FaceFusion pass that puts the user's real face back onto the
+    swapped video. The swap already cost credits, so a failure here keeps
+    the raw video and surfaces a warning instead of failing the job."""
+    from app import face_restore
+
+    photos = face_restore.source_photos(user_photo())
+    restored = os.path.join(OUTPUT_DIR, "%s-restored.mp4" % job_id)
+    try:
+        return face_restore.restore(
+            raw_path, restored, photos,
+            progress=lambda detail: progress("restoring", detail))
+    except face_restore.FaceRestoreError as exc:
+        progress("warning",
+                 "Face restore failed (%s) — kept the unrestored video."
+                 % str(exc)[:160])
+        return raw_path
+
+
 def start_job(job_id, url, progress):
     """Phase 1: download the reel and decide whether the user must pick a
     15s window. Returns {path, duration, needs_selection}."""
@@ -246,7 +265,7 @@ def start_job(job_id, url, progress):
 
 
 def finish_job(job_id, path, duration, start, progress, length=None,
-               engine="kling"):
+               engine="kling", restore="auto"):
     """Phase 2: cut the chosen window, ensure the character sheet, run the
     swap, save the result. Deterministic Higgsfield calls first; the Claude
     agent runs only when the default (kling) path hits a schema/protocol
@@ -298,13 +317,22 @@ def finish_job(job_id, path, duration, start, progress, length=None,
             progress=lambda detail: progress("swapping", detail))
 
     progress("saving", "Downloading your generated video…")
-    return save_result(video_url, job_id)
+    out_path = save_result(video_url, job_id)
+
+    from app import face_restore
+    if restore == "auto":
+        restore = face_restore.available()
+    if restore:
+        out_path = restore_faces(out_path, job_id, progress)
+    return out_path
 
 
-def run_job(job_id, url, progress, start=0.0, length=None, engine="kling"):
+def run_job(job_id, url, progress, start=0.0, length=None, engine="kling",
+            restore="auto"):
     """Full pipeline in one shot (CLI mode — no interactive selection).
 
     Returns the path of the final video under output/."""
     info = start_job(job_id, url, progress)
     return finish_job(job_id, info["path"], info["duration"], start,
-                      progress, length=length, engine=engine)
+                      progress, length=length, engine=engine,
+                      restore=restore)

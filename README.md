@@ -44,7 +44,36 @@ videos land in `output/`.
 - **Two swap engines:** Kling motion control (default; scene comes from
   the reel) and Seedance 2.0 (experimental, 480p, ~36 credits; note it
   refuses reels its copyright filter flags).
-- **CLI mode:** `python3 replicate.py <reel-url> [start] [length]`.
+- **Face restore (optional, recommended):** the swap engines nail body,
+  motion, and scene but drift on facial identity. This local
+  [FaceFusion](https://github.com/facefusion/facefusion) post-pass puts
+  your *real* face back onto the result — free, offline, roughly 1 minute
+  per second of video on Apple Silicon. See below.
+- **CLI mode:**
+  `python3 replicate.py <reel-url> [start] [length] [--no-restore]`.
+
+## Face restore
+
+```sh
+./setup.sh --face-restore   # one-time: ~2 GB of tooling under vendor/
+```
+
+This vendors a standalone Python 3.12, FaceFusion 3.6.1, and its
+dependencies inside `vendor/` (your system Python is untouched; models
+download on first use). When installed, the page shows a **"Restore my
+face after the swap"** checkbox, on by default.
+
+Likeness improves further with **extra face photos**: click *Add face
+photos* under the engine picker and add 2–8 more shots — varied angles,
+expressions, and lighting help most. FaceFusion averages the identity
+embedding across all photos, which cancels out single-photo quirks.
+Extras live in `assets/faces/` (gitignored) and only feed the local face
+restore; the Higgsfield character reference still comes from your main
+photo.
+
+If the restore pass ever fails, the job still succeeds with the
+unrestored video and a warning — the credits spent on the swap are never
+wasted on a local hiccup.
 
 ## How it works
 
@@ -54,6 +83,7 @@ reel URL → bin/yt-dlp (download, public reels only)
          → bin/ffmpeg (frame-accurate cut)
          → character reference (generated once, cached in assets/)
          → direct Higgsfield API calls (upload, swap, poll) — app/higgsfield.py
+         → face restore (optional, local FaceFusion pass) — app/face_restore.py
          → output/<job>.mp4 (played back in the page)
 ```
 

@@ -7,7 +7,7 @@ import urllib.parse
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from app import oauth, pipeline
+from app import face_restore, oauth, pipeline
 
 PORT = 8787
 PUBLIC_DIR = os.path.join(pipeline.ROOT, "public")
@@ -32,7 +32,9 @@ def _status():
         except Exception:
             connected, source = False, None
     return {"connected": connected, "source": source,
-            "photo": bool(pipeline.user_photo())}
+            "photo": bool(pipeline.user_photo()),
+            "faceRestore": face_restore.available(),
+            "extraFaces": len(face_restore.extra_photos())}
 
 
 def _set_job(job_id, **fields):
@@ -42,14 +44,18 @@ def _set_job(job_id, **fields):
 
 def _progress(job_id):
     def progress(step, detail):
-        _set_job(job_id, status="running", step=step, detail=detail)
+        if step == "warning":  # keep the job running; shown next to "done"
+            _set_job(job_id, warning=detail)
+        else:
+            _set_job(job_id, status="running", step=step, detail=detail)
     return progress
 
 
-def _run_start(job_id, url, engine):
+def _run_start(job_id, url, engine, restore):
     try:
         info = pipeline.start_job(job_id, url, _progress(job_id))
         info["engine"] = engine
+        info["restore"] = restore
         if info["needs_selection"]:
             with _jobs_lock:
                 _job_files[job_id] = info
@@ -79,7 +85,8 @@ def _run_finish(job_id, info, start, length=None):
 def _finish(job_id, info, start, length=None):
     out_path = pipeline.finish_job(
         job_id, info["path"], info["duration"], start, _progress(job_id),
-        length=length, engine=info.get("engine") or "kling")
+        length=length, engine=info.get("engine") or "kling",
+        restore=info.get("restore", False))
     _set_job(job_id, status="done", step="done",
              detail="Your reel is ready!",
              resultUrl="/output/%s" % os.path.basename(out_path))
@@ -159,6 +166,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/photo":
             self._post_photo()
             return
+        if self.path == "/api/faces":
+            self._post_face()
+            return
+        if self.path == "/api/faces/clear":
+            self._post_faces_clear()
+            return
         if self.path == "/api/auth/start":
             self._post_auth_start()
             return
@@ -230,6 +243,33 @@ class Handler(BaseHTTPRequestHandler):
             fh.write(data)
         self._json(200, {"ok": True})
 
+    def _post_face(self):
+        """Store one extra face photo (improves face-restore likeness)."""
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > 20 * 1024 * 1024:
+            self._json(400, {"error": "Photo must be a file under 20 MB."})
+            return
+        data = self.rfile.read(length)
+        ext = pipeline.detect_image_ext(data)
+        if not ext:
+            self._json(400, {"error": "Please upload a JPEG or PNG photo."})
+            return
+        if len(face_restore.extra_photos()) >= face_restore.MAX_EXTRA_PHOTOS:
+            self._json(400, {"error": "That's plenty — %d extra photos max."
+                                      % face_restore.MAX_EXTRA_PHOTOS})
+            return
+        os.makedirs(face_restore.FACES_DIR, exist_ok=True)
+        name = "face-%s%s" % (uuid.uuid4().hex[:8], ext)
+        with open(os.path.join(face_restore.FACES_DIR, name), "wb") as fh:
+            fh.write(data)
+        self._json(200, {"ok": True,
+                         "extraFaces": len(face_restore.extra_photos())})
+
+    def _post_faces_clear(self):
+        for path in face_restore.extra_photos():
+            os.remove(path)
+        self._json(200, {"ok": True, "extraFaces": 0})
+
     def _post_replicate(self, data):
         from app import higgsfield
         try:
@@ -241,9 +281,11 @@ class Handler(BaseHTTPRequestHandler):
         if engine not in higgsfield.SWAP_ENGINES:
             self._json(400, {"error": "Unknown swap engine."})
             return
+        restore = bool(data.get("restore")) and face_restore.available()
         job_id = uuid.uuid4().hex[:12]
         _set_job(job_id, status="running", step="starting", detail="Starting…")
-        threading.Thread(target=_run_start, args=(job_id, url, engine),
+        threading.Thread(target=_run_start,
+                         args=(job_id, url, engine, restore),
                          daemon=True).start()
         self._json(202, {"jobId": job_id})
 
