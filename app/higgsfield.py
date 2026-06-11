@@ -23,6 +23,7 @@ DEFAULT_POLL_SECONDS = 5
 SHEET_MODEL = "soul_2"          # Higgsfield's identity model; 1 reference image
 SWAP_RESOLUTION = "720p"        # character-swap research sweet spot
 SEEDANCE_MODEL = "seedance_2_0"
+SEEDANCE_RESOLUTION = "480p"    # lowest tier seedance offers (480/720/1080)
 SWAP_ENGINES = ("kling", "seedance")
 
 SEEDANCE_SWAP_PROMPT = (
@@ -353,7 +354,7 @@ def submit_swap(client, engine, image_ref, video_media_id,
             "model": SEEDANCE_MODEL,
             "prompt": SEEDANCE_SWAP_PROMPT,
             "aspect_ratio": "auto",     # follow the reference video
-            "resolution": SWAP_RESOLUTION,
+            "resolution": SEEDANCE_RESOLUTION,
             "mode": "std",
             "medias": [
                 {"value": video_media_id, "role": "video"},
