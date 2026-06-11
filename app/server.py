@@ -189,7 +189,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print("Reel Replicate Me → http://localhost:%d" % PORT)
+    print("Reel Swap Me In → http://localhost:%d" % PORT)
     server.serve_forever()
 
 
