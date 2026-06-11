@@ -36,6 +36,7 @@
   #engineRow input { accent-color:#7c6cf2; margin-right:5px; }
   #engineRow .tag { font-size:11px; color:#9a96a8; border:1px solid #2c2a36;
                     border-radius:6px; padding:1px 6px; margin-left:4px; }
+  #setupState { margin:8px 0 0; font-size:12px; color:#6f6a80; }
   #picker input[type=range] { width:100%; margin-top:2px; accent-color:#7c6cf2; }
   .sliderLabel { display:block; margin-top:12px; text-align:left; font-size:13px; color:#9a96a8; }
   #rangeLabel { margin:10px 0 14px; color:#c9c5d8; }
@@ -64,6 +65,7 @@
     <label><input type="radio" name="engine" value="kling" checked> Kling motion control</label>
     <label><input type="radio" name="engine" value="seedance"> Seedance 2.0 <span class="tag">experimental</span></label>
   </div>
+  <p id="setupState"></p>
   <div id="status"></div>
   <div id="picker" hidden>
     <video id="pickVideo" muted playsinline></video>
@@ -97,6 +99,9 @@ async function refreshStatus() {
     authCard.hidden = s.connected;
     photoCard.hidden = !!s.photo;
     setupEl.hidden = ready;
+    document.getElementById("setupState").textContent = ready
+      ? `Higgsfield connected ✓ (${s.source === "app" ? "in-app login" : "via Claude Code"}) · photo saved ✓`
+      : "";
     if (ready) {
       if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
       if (!timer) go.disabled = false;   // don't re-enable mid-run
