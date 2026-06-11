@@ -40,6 +40,47 @@
                     border-radius:6px; padding:1px 6px; margin-left:4px; }
   #setupState { margin:8px 0 0; font-size:12px; color:#6f6a80; }
   #setupState a { color:#a99cff; margin-left:8px; }
+  #galleryToggle { margin:12px 0 0; font-size:13px; }
+  #galleryToggle a { color:#a99cff; text-decoration:none; }
+  #gallery { margin-top:10px; padding:14px 16px; border:1px solid #2c2a36;
+             background:#17151e; border-radius:12px; text-align:left; }
+  #gallery .lbl { display:flex; justify-content:space-between; font-size:13px;
+                  color:#c9c5d8; margin-top:12px; }
+  #gallery .lbl:first-child { margin-top:0; }
+  #gallery .lbl .val { color:#9a96a8; }
+  #gallery .hint { font-size:11px; color:#6f6a80; margin:4px 0 0; }
+  #thumbs { display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; }
+  #thumbs .th { width:58px; height:74px; border-radius:9px; position:relative;
+                border:1px solid #2c2a36; background:#0e0d12; flex-shrink:0; }
+  #thumbs .th img { width:100%; height:100%; object-fit:cover;
+                    border-radius:8px; display:block; }
+  #thumbs .th.main { border:2px solid #7c6cf2; cursor:pointer; }
+  #thumbs .th.main::after { content:"MAIN"; position:absolute; bottom:2px;
+      left:0; right:0; font-size:8px; font-weight:700; color:#a99cff;
+      text-align:center; text-shadow:0 1px 2px #000; }
+  #thumbs .th .x, #thumbs .th .star { position:absolute; top:-7px;
+      width:17px; height:17px; border-radius:50%; background:#2c2a36;
+      font-size:10px; line-height:17px; text-align:center; cursor:pointer;
+      border:0; color:#ff7b7b; padding:0; }
+  #thumbs .th .x { right:-7px; }
+  #thumbs .th .star { left:-7px; color:#ffd479; }
+  #thumbs .th.add { border:1.5px dashed #4a4660; background:none;
+      color:#9a96a8; font-size:22px; cursor:pointer; }
+  #gallery input[type=range] { width:100%; accent-color:#7c6cf2; margin:8px 0 0; }
+  #gallery .seg { display:flex; gap:6px; margin-top:8px; }
+  #gallery .seg button { flex:1; padding:6px 0; font-size:11.5px;
+      background:none; border:1px solid #2c2a36; border-radius:8px;
+      color:#9a96a8; cursor:pointer; font-weight:400; }
+  #gallery .seg button.on { border-color:#7c6cf2; color:#f3f1ec;
+      background:rgba(124,108,242,.12); }
+  #gallery select { width:100%; background:#0e0d12; border:1px solid #2c2a36;
+      color:#c9c5d8; border-radius:8px; padding:7px 8px; font-size:12.5px;
+      margin-top:6px; }
+  #gallery .links { display:flex; justify-content:space-between; margin-top:12px;
+      font-size:12px; }
+  #gallery .links a { color:#a99cff; text-decoration:none; }
+  #savedNote { font-size:11px; color:#5f9b6d; text-align:center;
+      margin:10px 0 0; transition:opacity .4s; }
   #picker input[type=range] { width:100%; margin-top:2px; accent-color:#7c6cf2; }
   .sliderLabel { display:block; margin-top:12px; text-align:left; font-size:13px; color:#9a96a8; }
   #rangeLabel { margin:10px 0 14px; color:#c9c5d8; }
@@ -71,8 +112,32 @@
   <div id="restoreRow" hidden>
     <label><input type="checkbox" id="restoreChk" checked> Restore my face after the swap <span class="tag">local · free · ~1 min/s</span></label>
   </div>
-  <p id="setupState"><span id="setupStateText"></span><a id="changePhoto" href="#" hidden>Change photo</a><a id="addFaces" href="#" hidden></a><a id="clearFaces" href="#" hidden>clear extras</a></p>
-  <input id="facesInput" type="file" accept="image/jpeg,image/png" multiple hidden>
+  <p id="setupState"><span id="setupStateText"></span></p>
+  <p id="galleryToggle" hidden><a href="#" id="galleryLink">▸ Photos &amp; tuning</a></p>
+  <div id="gallery" hidden>
+    <div class="lbl">Your photos</div>
+    <div id="thumbs"></div>
+    <p class="hint">MAIN drives the Higgsfield character reference — click it to replace it, or ★ an extra to promote it (the reference regenerates on the next run, 1 credit). All photos feed face restore; varied angles &amp; lighting help most.</p>
+    <div id="tuning" hidden>
+      <div class="lbl">Face enhancement <span class="val" id="blendVal"></span></div>
+      <input id="blend" type="range" min="0" max="100" step="5">
+      <p class="hint">0 = natural skin texture from the swap · 100 = sharpest, can look airbrushed</p>
+      <div class="lbl">Detail quality</div>
+      <div class="seg" id="boostSeg"></div>
+      <p class="hint">How finely your face is rendered — higher is slower</p>
+      <div class="links"><a href="#" id="advLink">▸ Advanced</a><a href="#" id="resetLink" hidden>Reset to defaults</a></div>
+      <div id="advanced" hidden>
+        <div class="lbl">Swapper model</div>
+        <select id="swapperSel"></select>
+        <p class="hint">hyperswap_1a is the default — a new model downloads once on the next run (~250–700 MB)</p>
+        <div class="lbl">Enhancer model</div>
+        <select id="enhancerSel"></select>
+      </div>
+      <p id="savedNote" hidden>✓ saved — applies to your next swap</p>
+    </div>
+  </div>
+  <input id="addInput" type="file" accept="image/jpeg,image/png" multiple hidden>
+  <input id="mainInput" type="file" accept="image/jpeg,image/png" hidden>
   <div id="status"></div>
   <div id="picker" hidden>
     <video id="pickVideo" muted playsinline></video>
@@ -95,9 +160,28 @@ const f = document.getElementById("f"), urlEl = document.getElementById("url"),
 const setupEl = document.getElementById("setup"), authCard = document.getElementById("authCard"),
       photoCard = document.getElementById("photoCard"), connectBtn = document.getElementById("connectBtn"),
       photoBtn = document.getElementById("photoBtn"), photoInput = document.getElementById("photoInput");
-const restoreRow = document.getElementById("restoreRow"), restoreChk = document.getElementById("restoreChk"),
-      addFaces = document.getElementById("addFaces"), clearFaces = document.getElementById("clearFaces"),
-      facesInput = document.getElementById("facesInput");
+const restoreRow = document.getElementById("restoreRow"), restoreChk = document.getElementById("restoreChk");
+const galleryToggle = document.getElementById("galleryToggle"),
+      galleryLink = document.getElementById("galleryLink"),
+      gallery = document.getElementById("gallery"),
+      thumbs = document.getElementById("thumbs"),
+      tuning = document.getElementById("tuning"),
+      blend = document.getElementById("blend"), blendVal = document.getElementById("blendVal"),
+      boostSeg = document.getElementById("boostSeg"),
+      advLink = document.getElementById("advLink"), advanced = document.getElementById("advanced"),
+      resetLink = document.getElementById("resetLink"),
+      swapperSel = document.getElementById("swapperSel"), enhancerSel = document.getElementById("enhancerSel"),
+      savedNote = document.getElementById("savedNote"),
+      addInput = document.getElementById("addInput"), mainInput = document.getElementById("mainInput");
+const BOOSTS = ["256x256", "512x512", "768x768", "1024x1024"];
+const BOOST_LABELS = { "256x256": "Fast 256", "512x512": "Standard 512",
+                       "768x768": "High 768", "1024x1024": "Max 1024" };
+const SWAPPERS = ["hyperswap_1a_256", "hyperswap_1b_256", "hyperswap_1c_256",
+                  "inswapper_128_fp16", "inswapper_128", "ghost_2_256", "simswap_256"];
+const ENHANCERS = ["gfpgan_1.4", "codeformer", "restoreformer_plus_plus", "gpen_bfr_512"];
+const DEFAULTS = { enhancer_blend: 80, pixel_boost: "512x512",
+                   swapper_model: "hyperswap_1a_256", enhancer_model: "gfpgan_1.4" };
+let settings = { ...DEFAULTS };
 const MIN_LEN = 5, MAX_LEN = 15;
 let timer = null, ticker = null, startTime = null, lastDetail = "", jobId = null, reelDuration = 0;
 let statusTimer = null;
@@ -112,12 +196,9 @@ async function refreshStatus() {
     document.getElementById("setupStateText").textContent = ready
       ? `Higgsfield connected ✓ (${s.source === "app" ? "in-app login" : "via Claude Code"}) · photo saved ✓`
       : "";
-    document.getElementById("changePhoto").hidden = !s.photo;
     restoreRow.hidden = !s.faceRestore;
-    addFaces.hidden = !(s.faceRestore && s.photo);
-    addFaces.textContent = s.extraFaces
-      ? `Add face photos (${s.extraFaces} extra)` : "Add face photos";
-    clearFaces.hidden = !s.extraFaces;
+    galleryToggle.hidden = !ready;
+    tuning.hidden = !s.faceRestore;
     if (ready) {
       if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
       if (!timer) go.disabled = false;   // don't re-enable mid-run
@@ -140,15 +221,11 @@ connectBtn.addEventListener("click", async () => {
 });
 
 photoBtn.addEventListener("click", () => photoInput.click());
-document.getElementById("changePhoto").addEventListener("click", (e) => {
-  e.preventDefault();
-  photoInput.click();
-});
 photoInput.addEventListener("change", async () => {
   const file = photoInput.files[0];
   if (!file) return;
   photoInput.value = "";   // allow re-picking the same file later
-  const r = await fetch("/api/photo", {
+  const r = await fetch("/api/photos?role=main", {
     method: "POST",
     headers: { "Content-Type": file.type || "application/octet-stream" },
     body: file,
@@ -158,37 +235,151 @@ photoInput.addEventListener("change", async () => {
   else {
     setStatus("Photo saved ✓ — your character reference will regenerate on the next run (1 credit).");
     refreshStatus();
+    loadGallery();
   }
 });
 
-addFaces.addEventListener("click", (e) => { e.preventDefault(); facesInput.click(); });
-clearFaces.addEventListener("click", async (e) => {
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || "Request failed");
+  return d;
+}
+
+function renderThumbs(list) {
+  thumbs.innerHTML = "";
+  for (const p of list) {
+    const th = document.createElement("div");
+    th.className = "th" + (p.role === "main" ? " main" : "");
+    const img = document.createElement("img");
+    img.src = `/api/photos/${encodeURIComponent(p.name)}?t=${Date.now()}`;
+    th.appendChild(img);
+    if (p.role === "main") {
+      th.title = "Replace the main photo";
+      th.onclick = () => mainInput.click();
+    } else {
+      const star = document.createElement("button");
+      star.className = "star"; star.textContent = "★";
+      star.title = "Make this the main photo";
+      star.onclick = async () => {
+        if (!confirm("Make this the main photo? The character reference regenerates on the next run (1 credit).")) return;
+        try { renderThumbs((await api(`/api/photos/${encodeURIComponent(p.name)}/promote`, { method: "POST" })).photos); }
+        catch (err) { setStatus(err.message, { error: true }); }
+      };
+      const x = document.createElement("button");
+      x.className = "x"; x.textContent = "×"; x.title = "Remove";
+      x.onclick = async () => {
+        try { renderThumbs((await api(`/api/photos/${encodeURIComponent(p.name)}/delete`, { method: "POST" })).photos); }
+        catch (err) { setStatus(err.message, { error: true }); }
+      };
+      th.appendChild(star); th.appendChild(x);
+    }
+    thumbs.appendChild(th);
+  }
+  const add = document.createElement("div");
+  add.className = "th add"; add.textContent = "+";
+  add.style.lineHeight = "72px"; add.style.textAlign = "center";
+  add.title = "Add face photos";
+  add.onclick = () => addInput.click();
+  thumbs.appendChild(add);
+  galleryLink.textContent =
+    `${gallery.hidden ? "▸" : "▾"} Photos & tuning (${list.length} photo${list.length === 1 ? "" : "s"})`;
+}
+
+async function loadGallery() {
+  try { renderThumbs((await api("/api/photos")).photos); } catch { /* retry next status tick */ }
+}
+
+function showSaved() {
+  savedNote.hidden = false;
+  clearTimeout(showSaved._t);
+  showSaved._t = setTimeout(() => { savedNote.hidden = true; }, 2500);
+}
+
+function renderSettings() {
+  blend.value = settings.enhancer_blend;
+  blendVal.textContent = `${settings.enhancer_blend}%`;
+  boostSeg.innerHTML = "";
+  for (const b of BOOSTS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = BOOST_LABELS[b];
+    btn.className = b === settings.pixel_boost ? "on" : "";
+    btn.onclick = () => pushSettings({ pixel_boost: b });
+    boostSeg.appendChild(btn);
+  }
+  const fill = (sel, values, current) => {
+    sel.innerHTML = "";
+    for (const v of values) {
+      const o = document.createElement("option");
+      o.value = v; o.textContent = v; o.selected = v === current;
+      sel.appendChild(o);
+    }
+  };
+  fill(swapperSel, SWAPPERS, settings.swapper_model);
+  fill(enhancerSel, ENHANCERS, settings.enhancer_model);
+  resetLink.hidden = Object.keys(DEFAULTS).every(k => settings[k] === DEFAULTS[k]);
+}
+
+async function pushSettings(patch) {
+  try {
+    settings = await api("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    renderSettings(); showSaved();
+  } catch (err) { setStatus(err.message, { error: true }); }
+}
+
+async function loadSettings() {
+  try { settings = await api("/api/settings"); renderSettings(); } catch { /* defaults */ }
+}
+
+galleryLink.addEventListener("click", (e) => {
   e.preventDefault();
-  await fetch("/api/faces/clear", { method: "POST" });
-  refreshStatus();
+  gallery.hidden = !gallery.hidden;
+  loadGallery();
 });
-facesInput.addEventListener("change", async () => {
-  const files = [...facesInput.files];
-  facesInput.value = "";
-  let saved = 0, error = null;
+blend.addEventListener("input", () => { blendVal.textContent = `${blend.value}%`; });
+blend.addEventListener("change", () => pushSettings({ enhancer_blend: parseInt(blend.value, 10) }));
+advLink.addEventListener("click", (e) => {
+  e.preventDefault();
+  advanced.hidden = !advanced.hidden;
+  advLink.textContent = (advanced.hidden ? "▸" : "▾") + " Advanced";
+});
+resetLink.addEventListener("click", (e) => { e.preventDefault(); pushSettings({ ...DEFAULTS }); });
+swapperSel.addEventListener("change", () => pushSettings({ swapper_model: swapperSel.value }));
+enhancerSel.addEventListener("change", () => pushSettings({ enhancer_model: enhancerSel.value }));
+addInput.addEventListener("change", async () => {
+  const files = [...addInput.files];
+  addInput.value = "";
   try {
     for (const file of files) {
-      const r = await fetch("/api/faces", {
+      await api("/api/photos?role=extra", {
         method: "POST",
         headers: { "Content-Type": file.type || "application/octet-stream" },
         body: file,
       });
-      const d = await r.json();
-      if (!r.ok) { error = d.error || "Upload failed"; break; }
-      saved++;
     }
-  } catch (err) {
-    error = err.message;
-  }
-  if (error) setStatus(error, { error: true });
-  else setStatus(`${saved} face photo${saved === 1 ? "" : "s"} added ✓ — varied angles and lighting help most.`);
-  refreshStatus();
+  } catch (err) { setStatus(err.message, { error: true }); }
+  loadGallery();
 });
+mainInput.addEventListener("change", async () => {
+  const file = mainInput.files[0];
+  mainInput.value = "";
+  if (!file) return;
+  try {
+    await api("/api/photos?role=main", {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    setStatus("Main photo replaced ✓ — the character reference regenerates on the next run (1 credit).");
+  } catch (err) { setStatus(err.message, { error: true }); }
+  loadGallery();
+});
+loadGallery(); loadSettings();
 
 refreshStatus();
 statusTimer = setInterval(refreshStatus, 3000);
