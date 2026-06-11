@@ -2,118 +2,86 @@
 
 Paste an Instagram Reel URL — get the reel back **starring you**.
 
-The app downloads the reel, trims it to Higgsfield's 5–15 second window, then
-has **Claude** (running headless via the `claude` CLI) drive the **Higgsfield
-MCP server** to upload the clip plus your stored photo and run a
-character-swap generation (Recast / WAN 2.2 Animate "replace" mode). The
-result — the original reel's motion, framing, and pacing with *you* as the
-subject — lands in `output/` and plays right in the page.
+The app downloads the reel, lets you pick a 5–15s window, generates a clean
+character reference from your photo, and has Higgsfield's character-swap
+models re-render the clip with you as the subject. Everything runs locally
+with direct API calls — no frameworks, no pip installs, Python stdlib only.
 
-## One-time setup
+## Quick start
 
-1. **Run the setup script** (vendors `yt-dlp` + `ffmpeg` into `bin/` and
-   registers the Higgsfield MCP server with Claude Code at user scope):
-
-   ```sh
-   ./setup.sh
-   ```
-
-2. **Authorize Higgsfield once.** Run `claude`, type `/mcp`, choose
-   `higgsfield`, and complete the browser login. You need a
-   [Higgsfield](https://higgsfield.ai) account **with generation credits** —
-   each swap consumes credits. The OAuth token is stored by Claude Code and
-   reused automatically by the app's headless runs.
-
-3. **Add your photo.** Save a clear, front-facing photo of yourself as
-   `assets/me.jpg`. It's gitignored.
-
-(You also need to be logged in to Claude Code itself, which you already are if
-`claude` works in your terminal.)
-
-## Run it
+You need: macOS or Linux, Python 3.8+, and a
+[Higgsfield](https://higgsfield.ai) account **with generation credits**
+(each swap spends credits from *your* account).
 
 ```sh
+git clone https://github.com/krmiddlebrook/reel-swap-me-in.git
+cd reel-swap-me-in
+./setup.sh            # fetches yt-dlp + ffmpeg for your OS
 python3 -m app.server
 ```
 
-Open <http://localhost:8787>, paste a reel URL, hit **Replicate**, and wait —
-generation typically takes a few minutes; the page narrates each stage
-(uploading → submitted → rendering) with a live elapsed timer. The finished
-video appears in the page and is saved under `output/`.
+Open <http://localhost:8787>. The page walks you through the two one-time
+steps:
 
-**Reels longer than 15 seconds:** the page pauses and shows the downloaded
-reel with two sliders — pick the start point and the clip length (5–15s,
-Higgsfield's limits). The preview loops just the selected window. Hit
-**Use this part** to continue.
+1. **Connect Higgsfield** — click the button, log in in the browser tab
+   that opens, done. (The app registers itself with Higgsfield's OAuth
+   server and stores tokens locally in `.higgsfield-credentials.json`,
+   chmod 600, gitignored. They refresh automatically.)
+2. **Add your photo** — choose a clear, front-facing JPEG/PNG of yourself.
 
-**Character reference:** on your first run (and again whenever you change
-`assets/me.jpg`), the app has Higgsfield generate a clean character
-reference from your photo — a single front-facing, full-body studio shot
-(neutral expression, even lighting, empty hands, 9:16 framing) — caches it
-as `assets/character-sheet.*`, and uses *that* as the swap reference.
-That's the input shape WAN-Animate's replace mode responds to best, and it
-gives far more identity signal than a casual photo. Costs credits once per
-photo, not per reel. Delete `assets/character-sheet.*` any time to force a
-regeneration.
+Then paste a reel URL and hit **Replicate**. Generation takes a few
+minutes; the page narrates each stage with a live timer, and finished
+videos land in `output/`.
 
-Headless one-shot mode (optional args: clip start, clip length in seconds):
+## Features
 
-```sh
-python3 replicate.py https://www.instagram.com/reel/XXXXXXXX/ 12.5 8
-```
+- **Clip picker:** reels longer than 15s pause for you to choose the start
+  point and length (5–15s) with a window-looping preview.
+- **Character reference:** your first run generates a studio-style
+  reference image from your photo (1 credit, cached, regenerated only when
+  you change photos) — it gives the swap far more identity signal than a
+  casual photo.
+- **Two swap engines:** Kling motion control (default; scene comes from
+  the reel) and Seedance 2.0 (experimental, 480p, ~36 credits; note it
+  refuses reels its copyright filter flags).
+- **CLI mode:** `python3 replicate.py <reel-url> [start] [length]`.
 
 ## How it works
 
 ```
 reel URL → bin/yt-dlp (download, public reels only)
-         → pick start + length (5–15s) if the reel runs long (page sliders)
-         → bin/ffmpeg (reject <5s, cut the chosen window frame-accurately)
-         → character sheet (generated once from assets/me.jpg, cached as
-           assets/character-sheet.* + its Higgsfield id in
-           character-sheet.json)
-         → direct Higgsfield API calls (app/higgsfield.py): upload clip,
-           run the character swap (Kling motion control, scene from the
-           video, 720p), poll to completion — zero Claude tokens
-         → output/<job>.mp4 (served back to the page)
+         → pick start + length (5–15s) if the reel runs long
+         → bin/ffmpeg (frame-accurate cut)
+         → character reference (generated once, cached in assets/)
+         → direct Higgsfield API calls (upload, swap, poll) — app/higgsfield.py
+         → output/<job>.mp4 (played back in the page)
 ```
 
-The app reuses the Higgsfield OAuth session that Claude Code stores after
-your one-time `/mcp` login (read from the macOS Keychain; refreshed via a
-free `claude mcp list` health check when it expires). If Higgsfield ever
-changes their API shape, the app automatically falls back to driving the
-same steps through a headless Claude agent for that job — so Claude costs
-tokens only when the deterministic path breaks.
-
-No frameworks, no pip installs — the server is Python stdlib only.
+Auth is a standard OAuth client (PKCE + dynamic client registration)
+against Higgsfield's MCP server — see `app/oauth.py`. If you happen to use
+Claude Code and have its Higgsfield connector authorized, the app can also
+reuse that session, and installs an optional Claude-agent fallback that
+takes over a job if Higgsfield ever changes their API shape. Neither is
+required.
 
 ## Picking reels that swap well
 
-Character-swap models have strong preferences. For the most convincing
-results, pick reels where:
-
-- there's **one person** in frame (with multiple people, the model swaps
-  whoever is closest to the camera);
-- the subject mostly **faces the camera** — fast head turns and long
-  profile shots cause identity drift;
-- the face isn't covered for long stretches (microphones, hands, props);
-- lighting and exposure are **stable** across the clip;
-- the subject's **build roughly matches yours** — drastic body-type
-  mismatches map poorly;
-- motion is continuous rather than fast and jerky.
-
-A clear, evenly lit `assets/me.jpg` with your face unobstructed does the
-rest.
+- **One person** in frame (with several, the model swaps whoever is
+  closest to the camera);
+- subject mostly **facing the camera**; face not covered for long
+  stretches (mics, hands, props);
+- **stable lighting**, continuous motion rather than fast cuts;
+- a build **roughly matching yours** maps best.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| "Couldn't download this reel" | The reel must be public. Some reels are age/region-gated and can't be fetched anonymously — try another reel. |
+| "Couldn't download this reel" | The reel must be public. Some are age/region-gated — try another. |
 | "Reel too short" | Higgsfield needs at least 5 seconds of source video. |
-| Errors mentioning auth / MCP / expired login | Run `claude`, type `/mcp`, re-authenticate `higgsfield`. Check `claude mcp list` shows it. |
-| "falling back to the Claude agent" in progress | Harmless — the direct API path hit something unexpected and the agent took over for that job. If it happens every run, Higgsfield likely changed their API; file an issue. |
-| "No photo found" | Save your photo as `assets/me.jpg`. |
-| Generation fails mid-run | Check your Higgsfield credit balance at higgsfield.ai. |
+| "Higgsfield isn't connected" | Click **Connect Higgsfield** on the page and finish the browser login. |
+| "copyright filter blocked this content" | Seedance-only screening. Use the Kling engine for that reel. No credits were spent. |
+| Generation fails mid-run | Check your credit balance at higgsfield.ai. |
 | `bin/yt-dlp` or `bin/ffmpeg` missing | Re-run `./setup.sh`. |
 
 ## Consent & content

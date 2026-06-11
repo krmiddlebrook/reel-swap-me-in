@@ -3,6 +3,7 @@ import glob
 import json
 import os
 import re
+import shutil
 import subprocess
 import urllib.parse
 import urllib.request
@@ -197,6 +198,10 @@ def ensure_character_sheet(progress):
     except higgsfield.HiggsfieldFatal:
         raise
     except higgsfield.HiggsfieldError as exc:
+        if shutil.which("claude") is None:
+            raise PipelineError(
+                "%s (Claude fallback unavailable — claude CLI not installed)"
+                % exc)
         progress("sheet", "Direct Higgsfield call failed (%s) — using the "
                           "Claude agent instead…" % str(exc)[:80])
         url = claude_swap.create_character_sheet(
@@ -281,6 +286,10 @@ def finish_job(job_id, path, duration, start, progress, length=None,
         if engine != "kling":
             raise PipelineError(
                 "Seedance run failed: %s" % str(exc)[:200])
+        if shutil.which("claude") is None:
+            raise PipelineError(
+                "%s (Claude fallback unavailable — claude CLI not installed)"
+                % exc)
         progress("swapping",
                  "Direct Higgsfield call failed (%s) — falling back to the "
                  "Claude agent…" % str(exc)[:80])
