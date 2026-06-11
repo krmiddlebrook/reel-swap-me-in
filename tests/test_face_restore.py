@@ -1,3 +1,6 @@
+import json
+import os
+import tempfile
 import unittest
 from unittest import mock
 
@@ -144,6 +147,59 @@ class TestLastLine(unittest.TestCase):
 
     def test_empty(self):
         self.assertEqual(face_restore._last_line(None), "")
+
+
+class SettingsCase(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._patch = mock.patch.object(
+            face_restore, "SETTINGS_PATH",
+            os.path.join(self._tmp.name, "settings.json"))
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        self._tmp.cleanup()
+
+
+class TestLoadSettings(SettingsCase):
+    def test_missing_file_returns_defaults(self):
+        self.assertEqual(face_restore.load_settings(),
+                         face_restore.DEFAULT_SETTINGS)
+
+    def test_corrupt_file_returns_defaults(self):
+        with open(face_restore.SETTINGS_PATH, "w") as fh:
+            fh.write("{nope")
+        self.assertEqual(face_restore.load_settings(),
+                         face_restore.DEFAULT_SETTINGS)
+
+    def test_partial_file_merges_over_defaults(self):
+        with open(face_restore.SETTINGS_PATH, "w") as fh:
+            json.dump({"enhancer_blend": 40, "junk": 1}, fh)
+        settings = face_restore.load_settings()
+        self.assertEqual(settings["enhancer_blend"], 40)
+        self.assertEqual(settings["pixel_boost"],
+                         face_restore.DEFAULT_SETTINGS["pixel_boost"])
+        self.assertNotIn("junk", settings)
+
+
+class TestSaveSettings(SettingsCase):
+    def test_round_trip(self):
+        face_restore.save_settings({"pixel_boost": "768x768"})
+        self.assertEqual(face_restore.load_settings()["pixel_boost"],
+                         "768x768")
+
+    def test_invalid_values_rejected(self):
+        for bad in ({"enhancer_blend": 101}, {"enhancer_blend": "80"},
+                    {"enhancer_blend": True}, {"pixel_boost": "640x640"},
+                    {"swapper_model": "deepfacelab"},
+                    {"enhancer_model": "instagram_filter"}, ["not", "a", "dict"]):
+            with self.assertRaises(ValueError):
+                face_restore.save_settings(bad)
+
+    def test_unknown_keys_ignored(self):
+        saved = face_restore.save_settings({"junk": 1})
+        self.assertNotIn("junk", saved)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ that for free, locally.
 Optional — runs only when ./setup.sh --face-restore has vendored the
 tooling (standalone Python + FaceFusion) under vendor/.
 """
+import json
 import os
 import platform
 import subprocess
@@ -20,6 +21,71 @@ FF_DIR = os.path.join(VENDOR_DIR, "facefusion")
 FF_SCRIPT = os.path.join(FF_DIR, "facefusion.py")
 FF_PYTHON = os.path.join(VENDOR_DIR, "ff-venv", "bin", "python")
 TIMEOUT_SECONDS = 2 * 60 * 60
+
+SETTINGS_PATH = os.path.join(ROOT, "assets", "face-restore-settings.json")
+
+SWAPPER_MODELS = ("hyperswap_1a_256", "hyperswap_1b_256",
+                  "hyperswap_1c_256", "inswapper_128_fp16",
+                  "inswapper_128", "ghost_2_256", "simswap_256")
+ENHANCER_MODELS = ("gfpgan_1.4", "codeformer", "restoreformer_plus_plus",
+                   "gpen_bfr_512")
+PIXEL_BOOSTS = ("256x256", "512x512", "768x768", "1024x1024")
+
+DEFAULT_SETTINGS = {
+    "enhancer_blend": 80,
+    "pixel_boost": "512x512",
+    "swapper_model": "hyperswap_1a_256",
+    "enhancer_model": "gfpgan_1.4",
+}
+
+_SETTING_CHOICES = {
+    "pixel_boost": PIXEL_BOOSTS,
+    "swapper_model": SWAPPER_MODELS,
+    "enhancer_model": ENHANCER_MODELS,
+}
+
+
+def validate_settings(data):
+    """Known keys with valid values; raises ValueError naming the first
+    bad one. Unknown keys are ignored (forward compatibility)."""
+    if not isinstance(data, dict):
+        raise ValueError("settings must be a JSON object")
+    clean = {}
+    for key, value in data.items():
+        if key == "enhancer_blend":
+            if isinstance(value, bool) or not isinstance(value, int) \
+                    or not 0 <= value <= 100:
+                raise ValueError("enhancer_blend must be an integer 0-100")
+            clean[key] = value
+        elif key in _SETTING_CHOICES:
+            if value not in _SETTING_CHOICES[key]:
+                raise ValueError("%s must be one of: %s"
+                                 % (key, ", ".join(_SETTING_CHOICES[key])))
+            clean[key] = value
+    return clean
+
+
+def load_settings():
+    """Saved settings merged over defaults. Never raises — a corrupt or
+    missing file silently yields the defaults."""
+    settings = dict(DEFAULT_SETTINGS)
+    try:
+        with open(SETTINGS_PATH) as fh:
+            settings.update(validate_settings(json.load(fh)))
+    except (OSError, ValueError):
+        pass
+    return settings
+
+
+def save_settings(data):
+    """Validate, merge over current settings, persist; returns the result."""
+    clean = validate_settings(data)
+    settings = load_settings()
+    settings.update(clean)
+    with open(SETTINGS_PATH, "w") as fh:
+        json.dump(settings, fh, indent=2)
+    return settings
+
 
 # One restore at a time: concurrent multi-GB ONNX inference thrashes the
 # machine, and parallel CoreML model compilation is flaky.
