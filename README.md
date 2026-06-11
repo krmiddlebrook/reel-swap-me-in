@@ -46,13 +46,15 @@ reel with two sliders — pick the start point and the clip length (5–15s,
 Higgsfield's limits). The preview loops just the selected window. Hit
 **Use this part** to continue.
 
-**Character sheet:** on your first run (and again whenever you change
-`assets/me.jpg`), the app has Higgsfield generate a multi-view character
-sheet from your photo — front, three-quarter, and profile on a neutral
-background — caches it as `assets/character-sheet.*`, and uses *that* as the
-swap reference. A clean multi-angle reference gives the swap more identity
-signal than a single casual photo. This costs credits once per photo, not
-per reel.
+**Character reference:** on your first run (and again whenever you change
+`assets/me.jpg`), the app has Higgsfield generate a clean character
+reference from your photo — a single front-facing, full-body studio shot
+(neutral expression, even lighting, empty hands, 9:16 framing) — caches it
+as `assets/character-sheet.*`, and uses *that* as the swap reference.
+That's the input shape WAN-Animate's replace mode responds to best, and it
+gives far more identity signal than a casual photo. Costs credits once per
+photo, not per reel. Delete `assets/character-sheet.*` any time to force a
+regeneration.
 
 Headless one-shot mode (optional args: clip start, clip length in seconds):
 
@@ -74,6 +76,24 @@ reel URL → bin/yt-dlp (download, public reels only)
 ```
 
 No frameworks, no pip installs — the server is Python stdlib only.
+
+## Picking reels that swap well
+
+Character-swap models have strong preferences. For the most convincing
+results, pick reels where:
+
+- there's **one person** in frame (with multiple people, the model swaps
+  whoever is closest to the camera);
+- the subject mostly **faces the camera** — fast head turns and long
+  profile shots cause identity drift;
+- the face isn't covered for long stretches (microphones, hands, props);
+- lighting and exposure are **stable** across the clip;
+- the subject's **build roughly matches yours** — drastic body-type
+  mismatches map poorly;
+- motion is continuous rather than fast and jerky.
+
+A clear, evenly lit `assets/me.jpg` with your face unobstructed does the
+rest.
 
 ## Troubleshooting
 

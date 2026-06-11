@@ -41,7 +41,10 @@ Steps:
 1. Look at the Higgsfield tools you have available.
 2. Upload the source video and the character sheet image using the appropriate Higgsfield upload tool(s).
 3. Find the character-swap model in the model catalog: Higgsfield Recast / WAN 2.2 Animate. It MUST run in "replace" mode — the mode that swaps the person in the source video with the character from the reference image while keeping the source video's motion, framing, and pacing. Do NOT use "animate" mode (that mode animates a still photo, which is wrong here). If the tool exposes a mode/task/type parameter, set it to replace.
-4. Submit the generation with the uploaded video as the source/motion input, the uploaded character sheet as the character reference, and mode set to replace. Use sensible defaults for other parameters.
+4. Submit the generation with the uploaded video as the source/motion input, the uploaded character sheet as the character reference, and mode set to replace. Parameter guidance (replace mode works image→video, so respect these):
+   - If the tool accepts an optional text prompt, keep it short and describe ONLY the replacement person's appearance as seen in the character sheet (e.g. hair, build, clothing). Never describe the scene, background, lighting, camera, or actions — those must come from the source video unchanged.
+   - If a resolution or quality option exists, prefer ~720p output (replace mode's sweet spot); otherwise keep the tool's defaults.
+   - Do not enable any background-replacement, restyle, or voice options.
 5. Wait and poll until the generation completes. It can take several minutes — keep polling.
 6. Reply with ONLY one JSON object as the final line, no markdown fences:
    - success: {{"videoUrl": "<direct URL of the generated video file>"}}
@@ -59,7 +62,15 @@ Goal: create a character reference sheet from a photo of a person.
 Steps:
 1. Look at the Higgsfield tools you have available.
 2. Upload the photo using the appropriate Higgsfield upload tool.
-3. Use a Higgsfield image-generation model that accepts an identity/character reference image (for example Soul or Nano Banana) to generate ONE character-sheet image of the same person: photorealistic, faithful to the photo's identity, on a plain light-gray studio background with even lighting; the sheet should show a full-body front view plus three-quarter and profile head views arranged on one image; no text, labels, or watermarks.
+3. Use a Higgsfield image-generation model that accepts an identity/character reference image (for example Soul or Nano Banana) to generate ONE character reference image of the same person, built for video character-swap models (WAN Animate replace / Recast). Requirements, in priority order:
+   - exactly one person, a single full-body figure — NOT a collage or multi-view sheet (swap models latch onto one face and can project extra elements into the output)
+   - face clearly visible, front-facing, neutral expression, no extreme angle, nothing covering the face
+   - identity must faithfully match the source photo (same face, hair, build)
+   - standing naturally, arms relaxed at the sides, hands empty — no props, phones, bags, or accessories being held
+   - soft even studio lighting, neutral color temperature, no harsh shadows
+   - soft light-gray studio background (not pure white), uncluttered
+   - vertical 9:16 portrait framing (matches reel videos), sharp focus, photorealistic
+   - no text, labels, watermarks, or borders.
 4. Wait and poll until the generation completes.
 5. Reply with ONLY one JSON object as the final line, no markdown fences:
    - success: {{"imageUrl": "<direct URL of the generated image file>"}}
