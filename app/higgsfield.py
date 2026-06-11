@@ -150,6 +150,15 @@ def extract_result_url(payload, extensions):
     return find_media_url(_strip_inputs(payload), extensions)
 
 
+def translate_error(message):
+    """Rewrite known cryptic Higgsfield errors into self-explanatory ones."""
+    if "ip detected" in (message or "").lower():
+        return ("Higgsfield's copyright filter blocked this content for "
+                "Seedance (\"IP detected\"). No credits were spent. Try the "
+                "Kling engine for this reel, or a different reel.")
+    return message
+
+
 def classify_tool_error(text):
     """True when the error is fatal (fallback can't help): credits or auth."""
     text = (text or "").lower()
@@ -236,7 +245,7 @@ class Client:
         text = " ".join(c.get("text", "") for c in result.get("content") or []
                         if c.get("type") == "text").strip()
         if result.get("isError"):
-            message = text or "tool %s failed" % tool
+            message = translate_error(text or "tool %s failed" % tool)
             if classify_tool_error(message):
                 raise HiggsfieldFatal("Higgsfield: %s" % message[:300])
             raise HiggsfieldError("Higgsfield: %s" % message[:300])

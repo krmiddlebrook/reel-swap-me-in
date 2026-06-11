@@ -131,6 +131,19 @@ class TestGenerateVideoPresetDecline(unittest.TestCase):
         self.assertEqual(len(stub.calls), 1)
 
 
+class TestTranslateError(unittest.TestCase):
+    def test_ip_detected_becomes_self_explanatory(self):
+        from app.higgsfield import translate_error
+        out = translate_error("Error starting generation: IP detected "
+                              "Request ID: c4f7f8d7")
+        self.assertIn("copyright filter", out)
+        self.assertIn("No credits were spent", out)
+
+    def test_other_messages_pass_through(self):
+        from app.higgsfield import translate_error
+        self.assertEqual(translate_error("model not found"), "model not found")
+
+
 class TestClassifyToolError(unittest.TestCase):
     def test_credit_errors_are_fatal(self):
         for text in ["Insufficient credits", "not enough CREDITS left",
