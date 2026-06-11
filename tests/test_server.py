@@ -1,6 +1,7 @@
 import unittest
 
 from app.server import origin_allowed
+from app import server
 
 
 class TestOriginAllowed(unittest.TestCase):
@@ -18,6 +19,33 @@ class TestOriginAllowed(unittest.TestCase):
                     "http://localhost:87870", "https://localhost:8787",
                     "http://127.0.0.1:8787.evil.example", "null"]:
             self.assertFalse(origin_allowed(bad), bad)
+
+
+class TestPhotoRoutes(unittest.TestCase):
+    def test_action_route_parses_name_and_action(self):
+        match = server._PHOTO_ACTION.match("/api/photos/face-ab.jpg/promote")
+        self.assertEqual(match.group(1), "face-ab.jpg")
+        self.assertEqual(match.group(2), "promote")
+        match = server._PHOTO_ACTION.match("/api/photos/me.jpg/delete")
+        self.assertEqual(match.group(2), "delete")
+
+    def test_action_route_rejects_garbage(self):
+        for bad in ("/api/photos//promote", "/api/photos/a/b/promote",
+                    "/api/photos/a.jpg/rename", "/api/photos/promote"):
+            self.assertIsNone(server._PHOTO_ACTION.match(bad), bad)
+
+    def test_file_route(self):
+        match = server._PHOTO_FILE.match("/api/photos/me.jpg")
+        self.assertEqual(match.group(1), "me.jpg")
+        self.assertIsNone(server._PHOTO_FILE.match("/api/photos/"))
+        self.assertIsNone(server._PHOTO_FILE.match("/api/photos/a/b"))
+
+    def test_upload_role_parsing(self):
+        self.assertEqual(server._upload_role("/api/photos"), "extra")
+        self.assertEqual(server._upload_role("/api/photos?role=main"), "main")
+        self.assertEqual(server._upload_role("/api/photos?role=extra"),
+                         "extra")
+        self.assertIsNone(server._upload_role("/api/photos?role=banana"))
 
 
 if __name__ == "__main__":
