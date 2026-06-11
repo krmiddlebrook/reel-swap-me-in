@@ -1,8 +1,10 @@
 bin/
 work/
 output/
-assets/me.jpg
+assets/me.*
+assets/faces/
 assets/character-sheet.*
 __pycache__/
 *.pyc
 .higgsfield-credentials.json
+vendor/
