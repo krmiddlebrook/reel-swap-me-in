@@ -89,6 +89,34 @@ class TestSave(PhotoDirCase):
         self.assertEqual(len(photos.extra_photos()), 2)
         self.assertTrue(os.path.basename(a).startswith("face-"))
 
+    def test_save_main_failed_write_keeps_old_main(self):
+        old_data = b"original"
+        self.write(self.assets, "me.jpg", old_data)
+        with mock.patch.object(photos.os, "replace", side_effect=OSError("boom")):
+            with self.assertRaises(photos.PhotoError):
+                photos.save_main(b"new", ".jpg")
+        # old main must still exist with original bytes
+        old_path = os.path.join(self.assets, "me.jpg")
+        self.assertTrue(os.path.exists(old_path))
+        with open(old_path, "rb") as fh:
+            self.assertEqual(fh.read(), old_data)
+        # no temp leftovers
+        leftovers = [n for n in os.listdir(self.assets)
+                     if n.startswith("me.tmp-")]
+        self.assertEqual(leftovers, [])
+
+    def test_save_main_normalizes_uppercase_ext(self):
+        photos.save_main(b"x", ".JPG")
+        main = photos.main_photo()
+        self.assertIsNotNone(main)
+        self.assertEqual(os.path.basename(main), "me.jpg")
+
+    def test_save_rejects_unsupported_ext(self):
+        with self.assertRaises(photos.PhotoError):
+            photos.save_main(b"x", ".gif")
+        with self.assertRaises(photos.PhotoError):
+            photos.save_extra(b"x", ".gif")
+
 
 class TestDelete(PhotoDirCase):
     def test_delete_extra(self):

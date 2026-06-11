@@ -10,6 +10,8 @@ FACES_DIR = os.path.join(ASSETS_DIR, "faces")
 MAIN_EXTS = ("jpg", "jpeg", "png")
 MAX_EXTRAS = 9
 
+_VALID_EXTS = tuple("." + e for e in MAIN_EXTS)  # (".jpg", ".jpeg", ".png")
+
 
 class PhotoError(Exception):
     """An error whose message is safe to show to the user."""
@@ -66,21 +68,45 @@ def photo_path(name):
     return None
 
 
+def _check_ext(ext):
+    """Normalize and validate ext (includes the dot); raises PhotoError if bad."""
+    ext = ext.lower()
+    if ext not in _VALID_EXTS:
+        raise PhotoError("Unsupported image type.")
+    return ext
+
+
 def save_main(data, ext):
-    """Replace the main photo (ext includes the dot); returns its path."""
+    """Replace the main photo (ext includes the dot); returns its path.
+
+    Atomic: writes to a temp name inside ASSETS_DIR first, then
+    os.replace onto the final target, then removes other-ext leftovers.
+    The old main is never touched until the write is known to succeed."""
+    ext = _check_ext(ext)
     os.makedirs(ASSETS_DIR, exist_ok=True)
+    tmp_path = os.path.join(ASSETS_DIR, "me.tmp-%s" % uuid.uuid4().hex[:8])
+    target = os.path.join(ASSETS_DIR, "me" + ext)
+    try:
+        with open(tmp_path, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp_path, target)
+    except OSError:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise PhotoError("Couldn't save the photo.")
+    # remove other-extension leftovers (safe — new file is already in place)
     for old in MAIN_EXTS:
         old_path = os.path.join(ASSETS_DIR, "me." + old)
-        if os.path.exists(old_path):
+        if old_path != target and os.path.exists(old_path):
             os.remove(old_path)
-    path = os.path.join(ASSETS_DIR, "me" + ext)
-    with open(path, "wb") as fh:
-        fh.write(data)
-    return path
+    return target
 
 
 def save_extra(data, ext):
     """Store one extra photo; returns its path. Caller enforces caps."""
+    ext = _check_ext(ext)
     os.makedirs(FACES_DIR, exist_ok=True)
     path = os.path.join(FACES_DIR,
                         "face-%s%s" % (uuid.uuid4().hex[:8], ext))
@@ -119,7 +145,10 @@ def promote(name):
     demoted = os.path.join(
         FACES_DIR, "face-%s%s" % (uuid.uuid4().hex[:8],
                                   os.path.splitext(main)[1].lower()))
-    os.replace(main, demoted)
+    try:
+        os.replace(main, demoted)
+    except OSError:
+        raise PhotoError("Couldn't promote that photo.")
     new_main = os.path.join(ASSETS_DIR,
                             "me" + os.path.splitext(path)[1].lower())
     try:
