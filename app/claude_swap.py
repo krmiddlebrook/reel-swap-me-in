@@ -40,8 +40,8 @@ Goal: create a character-swapped version of a video.
 Steps:
 1. Look at the Higgsfield tools you have available.
 2. Upload the source video and the character sheet image using the appropriate Higgsfield upload tool(s).
-3. Find the character-swap model in the model catalog. It is the one that replaces the person in an existing video with a character from a reference image while keeping the original motion — called Recast, or WAN 2.2 Animate in "replace" mode.
-4. Submit the generation with the uploaded video as the source/motion input and the uploaded character sheet as the character reference. Use sensible defaults for other parameters.
+3. Find the character-swap model in the model catalog: Higgsfield Recast / WAN 2.2 Animate. It MUST run in "replace" mode — the mode that swaps the person in the source video with the character from the reference image while keeping the source video's motion, framing, and pacing. Do NOT use "animate" mode (that mode animates a still photo, which is wrong here). If the tool exposes a mode/task/type parameter, set it to replace.
+4. Submit the generation with the uploaded video as the source/motion input, the uploaded character sheet as the character reference, and mode set to replace. Use sensible defaults for other parameters.
 5. Wait and poll until the generation completes. It can take several minutes — keep polling.
 6. Reply with ONLY one JSON object as the final line, no markdown fences:
    - success: {{"videoUrl": "<direct URL of the generated video file>"}}
