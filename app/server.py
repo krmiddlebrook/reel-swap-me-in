@@ -11,6 +11,7 @@ from app import face_restore, oauth, pipeline
 
 PORT = 8787
 PUBLIC_DIR = os.path.join(pipeline.ROOT, "public")
+_ALLOWED_ORIGINS = ("http://localhost:%d" % PORT, "http://127.0.0.1:%d" % PORT)
 
 _jobs = {}            # job_id -> public state (returned by /api/jobs/<id>)
 _job_files = {}       # job_id -> {path, duration} kept server-side only
@@ -18,6 +19,13 @@ _jobs_lock = threading.Lock()
 
 _CLIP_PATH = re.compile(r"^/api/jobs/([0-9a-f]{12})/clip$")
 _WORK_PATH = re.compile(r"^/work/([0-9a-f]{12})/reel\.mp4$")
+
+
+def origin_allowed(origin):
+    """Block cross-site requests: any webpage can POST to localhost without
+    a preflight, so a foreign Origin means CSRF. Absent Origin (same-origin
+    GET, curl) is fine."""
+    return not origin or origin in _ALLOWED_ORIGINS
 
 
 def _status():
@@ -137,6 +145,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path.startswith("/api/") and not self._origin_ok():
+            return
         work_match = _WORK_PATH.match(self.path)
         if self.path in ("/", "/index.html"):
             self._file(os.path.join(PUBLIC_DIR, "index.html"),
@@ -162,7 +172,15 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
+    def _origin_ok(self):
+        if origin_allowed(self.headers.get("Origin")):
+            return True
+        self._json(403, {"error": "Blocked cross-site request."})
+        return False
+
     def do_POST(self):
+        if not self._origin_ok():
+            return
         if self.path == "/api/photo":
             self._post_photo()
             return
