@@ -68,12 +68,21 @@ python3 replicate.py https://www.instagram.com/reel/XXXXXXXX/ 12.5 8
 reel URL → bin/yt-dlp (download, public reels only)
          → pick start + length (5–15s) if the reel runs long (page sliders)
          → bin/ffmpeg (reject <5s, cut the chosen window frame-accurately)
-         → character sheet (generated once from assets/me.jpg via
-           Higgsfield, cached as assets/character-sheet.*)
-         → claude -p + Higgsfield MCP (upload clip + character sheet,
-           run character-swap generation, poll to completion)
+         → character sheet (generated once from assets/me.jpg, cached as
+           assets/character-sheet.* + its Higgsfield id in
+           character-sheet.json)
+         → direct Higgsfield API calls (app/higgsfield.py): upload clip,
+           run the character swap (Kling motion control, scene from the
+           video, 720p), poll to completion — zero Claude tokens
          → output/<job>.mp4 (served back to the page)
 ```
+
+The app reuses the Higgsfield OAuth session that Claude Code stores after
+your one-time `/mcp` login (read from the macOS Keychain; refreshed via a
+free `claude mcp list` health check when it expires). If Higgsfield ever
+changes their API shape, the app automatically falls back to driving the
+same steps through a headless Claude agent for that job — so Claude costs
+tokens only when the deterministic path breaks.
 
 No frameworks, no pip installs — the server is Python stdlib only.
 
@@ -101,7 +110,8 @@ rest.
 | --- | --- |
 | "Couldn't download this reel" | The reel must be public. Some reels are age/region-gated and can't be fetched anonymously — try another reel. |
 | "Reel too short" | Higgsfield needs at least 5 seconds of source video. |
-| Errors mentioning auth / MCP | Run `claude`, type `/mcp`, re-authenticate `higgsfield`. Check `claude mcp list` shows it. |
+| Errors mentioning auth / MCP / expired login | Run `claude`, type `/mcp`, re-authenticate `higgsfield`. Check `claude mcp list` shows it. |
+| "falling back to the Claude agent" in progress | Harmless — the direct API path hit something unexpected and the agent took over for that job. If it happens every run, Higgsfield likely changed their API; file an issue. |
 | "No photo found" | Save your photo as `assets/me.jpg`. |
 | Generation fails mid-run | Check your Higgsfield credit balance at higgsfield.ai. |
 | `bin/yt-dlp` or `bin/ffmpeg` missing | Re-run `./setup.sh`. |

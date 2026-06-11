@@ -1,5 +1,6 @@
 """Reel-replication pipeline: download → prepare → swap → save."""
 import glob
+import json
 import os
 import re
 import subprocess
@@ -128,27 +129,62 @@ def prepare_clip(path, duration, job_dir, start=0.0, length=None):
     return trimmed
 
 
-def _cached_character_sheet():
-    """Return the cached sheet path if it's newer than the user photo."""
-    for path in glob.glob(os.path.join(ROOT, "assets", "character-sheet.*")):
-        if os.path.getmtime(path) >= os.path.getmtime(USER_PHOTO):
-            return path
-        os.remove(path)  # photo changed — stale sheet
-    return None
+SHEET_META = os.path.join(ROOT, "assets", "character-sheet.json")
+
+
+def _sheet_cache():
+    """Return {"path", "ref_id"} when a sheet newer than the photo exists."""
+    photo_mtime = os.path.getmtime(USER_PHOTO)
+    path = None
+    for cand in glob.glob(os.path.join(ROOT, "assets", "character-sheet.*")):
+        if cand.endswith(".json"):
+            continue
+        if os.path.getmtime(cand) >= photo_mtime:
+            path = cand
+        else:
+            os.remove(cand)  # photo changed — stale sheet
+    if path is None:
+        return None
+    ref_id = None
+    try:
+        with open(SHEET_META) as fh:
+            meta = json.load(fh)
+        if meta.get("photo_mtime") == photo_mtime:
+            ref_id = meta.get("ref_id")
+    except (OSError, ValueError):
+        pass
+    return {"path": path, "ref_id": ref_id}
 
 
 def ensure_character_sheet(progress):
-    """Generate (once) a multi-view character sheet from the user photo and
-    cache it in assets/. The sheet is the reference Higgsfield swaps in."""
-    from app import claude_swap
+    """Generate (once per photo) the character reference used for swaps.
 
-    cached = _cached_character_sheet()
+    Deterministic Higgsfield call first; Claude agent only as fallback.
+    Returns {"path": local image, "ref_id": Higgsfield job id or None}."""
+    from app import claude_swap, higgsfield
+
+    cached = _sheet_cache()
     if cached:
         return cached
     progress("sheet", "Creating your character sheet "
                       "(happens once per photo)…")
-    url = claude_swap.create_character_sheet(
-        USER_PHOTO, progress=lambda detail: progress("sheet", detail))
+    photo_mtime = os.path.getmtime(USER_PHOTO)
+    ref_id = None
+    try:
+        client = higgsfield.Client()
+        photo_id = higgsfield.upload_file(client, USER_PHOTO)
+        job_id = higgsfield.generate_sheet(client, photo_id)
+        url = higgsfield.wait_for_job(
+            client, job_id, higgsfield.IMAGE_EXTS,
+            progress=lambda detail: progress("sheet", detail))
+        ref_id = job_id
+    except higgsfield.HiggsfieldFatal:
+        raise
+    except higgsfield.HiggsfieldError as exc:
+        progress("sheet", "Direct Higgsfield call failed (%s) — using the "
+                          "Claude agent instead…" % str(exc)[:80])
+        url = claude_swap.create_character_sheet(
+            USER_PHOTO, progress=lambda detail: progress("sheet", detail))
     ext = os.path.splitext(urllib.parse.urlparse(url).path)[1] or ".png"
     sheet_path = os.path.join(ROOT, "assets", "character-sheet" + ext)
     try:
@@ -157,7 +193,9 @@ def ensure_character_sheet(progress):
         raise PipelineError(
             "Character sheet was generated but downloading it failed. "
             "URL: %s" % url)
-    return sheet_path
+    with open(SHEET_META, "w") as fh:
+        json.dump({"ref_id": ref_id, "photo_mtime": photo_mtime}, fh)
+    return {"path": sheet_path, "ref_id": ref_id}
 
 
 def save_result(video_url, job_id):
@@ -188,8 +226,9 @@ def start_job(job_id, url, progress):
 
 def finish_job(job_id, path, duration, start, progress, length=None):
     """Phase 2: cut the chosen window, ensure the character sheet, run the
-    swap, save the result."""
-    from app import claude_swap  # late import: keeps pure functions test-light
+    swap, save the result. Deterministic Higgsfield calls first; the Claude
+    agent runs only when the direct path hits a schema/protocol error."""
+    from app import claude_swap, higgsfield
 
     job_dir = os.path.join(WORK_DIR, job_id)
     progress("preparing", "Cutting your clip…")
@@ -197,12 +236,34 @@ def finish_job(job_id, path, duration, start, progress, length=None):
 
     sheet = ensure_character_sheet(progress)
 
-    progress("swapping",
-             "Claude + Higgsfield are re-casting you into the reel "
-             "(this can take several minutes)…")
-    video_url = claude_swap.swap(
-        clip, sheet,
-        progress=lambda detail: progress("swapping", detail))
+    try:
+        client = higgsfield.Client()
+        credits = higgsfield.balance(client)
+        if credits is not None and credits <= 0:
+            raise higgsfield.HiggsfieldFatal(
+                "You're out of Higgsfield credits — top up at higgsfield.ai.")
+        progress("swapping", "Uploading your clip to Higgsfield…")
+        video_id = higgsfield.upload_file(client, clip)
+        image_ref = sheet["ref_id"]
+        if not image_ref:
+            progress("swapping", "Uploading your character sheet…")
+            image_ref = higgsfield.upload_file(client, sheet["path"])
+        gen_id = higgsfield.swap(client, image_ref, video_id)
+        progress("swapping",
+                 "Swap submitted — rendering on Higgsfield "
+                 "(this can take several minutes)…")
+        video_url = higgsfield.wait_for_job(
+            client, gen_id, higgsfield.VIDEO_EXTS,
+            progress=lambda detail: progress("swapping", detail))
+    except higgsfield.HiggsfieldFatal:
+        raise
+    except higgsfield.HiggsfieldError as exc:
+        progress("swapping",
+                 "Direct Higgsfield call failed (%s) — falling back to the "
+                 "Claude agent…" % str(exc)[:80])
+        video_url = claude_swap.swap(
+            clip, sheet["path"],
+            progress=lambda detail: progress("swapping", detail))
 
     progress("saving", "Downloading your generated video…")
     return save_result(video_url, job_id)
