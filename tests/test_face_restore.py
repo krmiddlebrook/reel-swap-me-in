@@ -210,12 +210,31 @@ class TestSaveSettings(SettingsCase):
                     {"enhancer_blend": True}, {"pixel_boost": "640x640"},
                     {"swapper_model": "deepfacelab"},
                     {"enhancer_model": "instagram_filter"}, ["not", "a", "dict"]):
-            with self.assertRaises(ValueError):
-                face_restore.save_settings(bad)
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    face_restore.save_settings(bad)
+
+    def test_blend_boundaries_accepted(self):
+        face_restore.save_settings({"enhancer_blend": 0})
+        self.assertEqual(face_restore.load_settings()["enhancer_blend"], 0)
+        face_restore.save_settings({"enhancer_blend": 100})
+        self.assertEqual(face_restore.load_settings()["enhancer_blend"], 100)
+
+    def test_atomic_write_no_tmp_leftover(self):
+        face_restore.save_settings({"enhancer_blend": 42})
+        self.assertFalse(
+            os.path.exists(face_restore.SETTINGS_PATH + ".tmp"))
 
     def test_unknown_keys_ignored(self):
         saved = face_restore.save_settings({"junk": 1})
         self.assertNotIn("junk", saved)
+
+
+class TestBuildCommandFallback(SettingsCase):
+    def test_no_settings_arg_reads_from_file(self):
+        face_restore.save_settings({"pixel_boost": "768x768"})
+        cmd = face_restore.build_command(["a.jpg"], "t", "o", "cpu")
+        self.assertIn("768x768", cmd)
 
 
 if __name__ == "__main__":

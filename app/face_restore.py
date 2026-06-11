@@ -78,18 +78,29 @@ def load_settings():
 
 
 def save_settings(data):
-    """Validate, merge over current settings, persist; returns the result."""
+    """Validate, merge over current settings, persist; returns the result.
+
+    Atomic write + lock: concurrent saves must not drop keys, and a crash
+    mid-write must not leave torn JSON (load would silently reset all
+    tuning to defaults)."""
     clean = validate_settings(data)
-    settings = load_settings()
-    settings.update(clean)
-    with open(SETTINGS_PATH, "w") as fh:
-        json.dump(settings, fh, indent=2)
+    with _SETTINGS_LOCK:
+        settings = load_settings()
+        settings.update(clean)
+        tmp = SETTINGS_PATH + ".tmp"
+        with open(tmp, "w") as fh:
+            json.dump(settings, fh, indent=2)
+        os.replace(tmp, SETTINGS_PATH)
     return settings
 
 
 # One restore at a time: concurrent multi-GB ONNX inference thrashes the
 # machine, and parallel CoreML model compilation is flaky.
 _RUN_LOCK = threading.Lock()
+
+# Serialises concurrent save_settings calls so keys are never dropped and
+# a crash mid-write cannot leave torn JSON.
+_SETTINGS_LOCK = threading.Lock()
 
 
 class FaceRestoreError(Exception):
@@ -115,7 +126,8 @@ def providers():
 
 
 def build_command(sources, target, output, provider, settings=None):
-    settings = settings or load_settings()
+    if settings is None:
+        settings = load_settings()
     cmd = [FF_PYTHON, FF_SCRIPT, "headless-run", "-s"]
     cmd += list(sources)
     cmd += [
