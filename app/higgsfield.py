@@ -21,7 +21,18 @@ WAIT_TIMEOUT_SECONDS = 30 * 60
 DEFAULT_POLL_SECONDS = 5
 
 SHEET_MODEL = "soul_2"          # Higgsfield's identity model; 1 reference image
-SWAP_RESOLUTION = "720p"        # WAN-replace research sweet spot
+SWAP_RESOLUTION = "720p"        # character-swap research sweet spot
+SEEDANCE_MODEL = "seedance_2_0"
+SWAP_ENGINES = ("kling", "seedance")
+
+SEEDANCE_SWAP_PROMPT = (
+    "Recreate the reference video exactly: the same scene, background, "
+    "environment, lighting, camera movement, framing, pacing, and the same "
+    "actions and choreography, beat for beat. Replace the main person in "
+    "the video with the person from the reference image - identical face, "
+    "hair, and build, faithfully preserved throughout. Change nothing else: "
+    "do not alter the setting, add elements, or restyle the footage."
+)
 VIDEO_EXTS = (".mp4", ".mov", ".webm")
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
 
@@ -318,14 +329,48 @@ def generate_sheet(client, photo_media_id):
     return _job_id_from(structured, text)
 
 
-def swap(client, image_ref, video_media_id):
-    """Submit the character swap (Kling motion control); returns job id."""
-    structured, text = client.call("motion_control", {"params": {
-        "image_id": image_ref,
-        "motion_video_id": video_media_id,
-        "resolution": SWAP_RESOLUTION,
-        "scene_control": "video",   # keep the reel's scene, replace the person
-    }})
+def _generate_video(client, params):
+    """generate_video with automatic decline of preset recommendations —
+    the server may intercept prompts it thinks match a preset and ask; we
+    always want literal generation."""
+    structured, text = client.call("generate_video", {"params": params})
+    notice = (structured or {}).get("notice") or {}
+    if notice.get("type") == "preset_recommendation":
+        declined = ((notice.get("data") or {}).get("retry_literal_with")
+                    or {}).get("declined_preset_id")
+        retry = dict(params)
+        if declined:
+            retry["declined_preset_id"] = declined
+        structured, text = client.call("generate_video", {"params": retry})
+    return structured, text
+
+
+def submit_swap(client, engine, image_ref, video_media_id,
+                duration_seconds=None):
+    """Submit the character swap on the chosen engine; returns job id."""
+    if engine == "seedance":
+        params = {
+            "model": SEEDANCE_MODEL,
+            "prompt": SEEDANCE_SWAP_PROMPT,
+            "aspect_ratio": "auto",     # follow the reference video
+            "resolution": SWAP_RESOLUTION,
+            "mode": "std",
+            "medias": [
+                {"value": video_media_id, "role": "video"},
+                {"value": image_ref, "role": "image"},
+            ],
+        }
+        if duration_seconds:
+            # match the clip; seedance accepts 4-15s and defaults to 15
+            params["duration"] = max(4, min(15, int(round(duration_seconds))))
+        structured, text = _generate_video(client, params)
+    else:
+        structured, text = client.call("motion_control", {"params": {
+            "image_id": image_ref,
+            "motion_video_id": video_media_id,
+            "resolution": SWAP_RESOLUTION,
+            "scene_control": "video",  # keep the reel's scene, replace the person
+        }})
     return _job_id_from(structured, text)
 
 

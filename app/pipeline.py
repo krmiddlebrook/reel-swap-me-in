@@ -224,10 +224,12 @@ def start_job(job_id, url, progress):
             "needs_selection": needs_selection}
 
 
-def finish_job(job_id, path, duration, start, progress, length=None):
+def finish_job(job_id, path, duration, start, progress, length=None,
+               engine="kling"):
     """Phase 2: cut the chosen window, ensure the character sheet, run the
     swap, save the result. Deterministic Higgsfield calls first; the Claude
-    agent runs only when the direct path hits a schema/protocol error."""
+    agent runs only when the default (kling) path hits a schema/protocol
+    error — engine experiments fail visibly instead of switching engines."""
     from app import claude_swap, higgsfield
 
     job_dir = os.path.join(WORK_DIR, job_id)
@@ -248,16 +250,21 @@ def finish_job(job_id, path, duration, start, progress, length=None):
         if not image_ref:
             progress("swapping", "Uploading your character sheet…")
             image_ref = higgsfield.upload_file(client, sheet["path"])
-        gen_id = higgsfield.swap(client, image_ref, video_id)
+        clip_seconds = clamp_length(length, duration)
+        gen_id = higgsfield.submit_swap(client, engine, image_ref, video_id,
+                                        duration_seconds=clip_seconds)
         progress("swapping",
-                 "Swap submitted — rendering on Higgsfield "
-                 "(this can take several minutes)…")
+                 "Swap submitted on %s — rendering on Higgsfield "
+                 "(this can take several minutes)…" % engine)
         video_url = higgsfield.wait_for_job(
             client, gen_id, higgsfield.VIDEO_EXTS,
             progress=lambda detail: progress("swapping", detail))
     except higgsfield.HiggsfieldFatal:
         raise
     except higgsfield.HiggsfieldError as exc:
+        if engine != "kling":
+            raise PipelineError(
+                "Seedance run failed: %s" % str(exc)[:200])
         progress("swapping",
                  "Direct Higgsfield call failed (%s) — falling back to the "
                  "Claude agent…" % str(exc)[:80])
@@ -269,10 +276,10 @@ def finish_job(job_id, path, duration, start, progress, length=None):
     return save_result(video_url, job_id)
 
 
-def run_job(job_id, url, progress, start=0.0, length=None):
+def run_job(job_id, url, progress, start=0.0, length=None, engine="kling"):
     """Full pipeline in one shot (CLI mode — no interactive selection).
 
     Returns the path of the final video under output/."""
     info = start_job(job_id, url, progress)
     return finish_job(job_id, info["path"], info["duration"], start,
-                      progress, length=length)
+                      progress, length=length, engine=engine)

@@ -26,6 +26,11 @@
   @keyframes spin { to { transform:rotate(360deg); } }
   video { margin-top:24px; width:100%; max-height:70vh; border-radius:16px; background:#000; }
   a.dl { display:inline-block; margin-top:12px; color:#a99cff; }
+  #engineRow { margin-top:14px; display:flex; gap:18px; justify-content:center;
+               font-size:13.5px; color:#c9c5d8; }
+  #engineRow input { accent-color:#7c6cf2; margin-right:5px; }
+  #engineRow .tag { font-size:11px; color:#9a96a8; border:1px solid #2c2a36;
+                    border-radius:6px; padding:1px 6px; margin-left:4px; }
   #picker input[type=range] { width:100%; margin-top:2px; accent-color:#7c6cf2; }
   .sliderLabel { display:block; margin-top:12px; text-align:left; font-size:13px; color:#9a96a8; }
   #rangeLabel { margin:10px 0 14px; color:#c9c5d8; }
@@ -39,6 +44,10 @@
     <input id="url" type="url" placeholder="https://www.instagram.com/reel/…" required>
     <button id="go" type="submit">Replicate</button>
   </form>
+  <div id="engineRow">
+    <label><input type="radio" name="engine" value="kling" checked> Kling motion control</label>
+    <label><input type="radio" name="engine" value="seedance"> Seedance 2.0 <span class="tag">experimental</span></label>
+  </div>
   <div id="status"></div>
   <div id="picker" hidden>
     <video id="pickVideo" muted playsinline></video>
@@ -196,7 +205,10 @@ f.addEventListener("submit", async (e) => {
     const r = await fetch("/api/replicate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reelUrl: urlEl.value }),
+      body: JSON.stringify({
+        reelUrl: urlEl.value,
+        engine: document.querySelector('input[name="engine"]:checked').value,
+      }),
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || "Request failed");

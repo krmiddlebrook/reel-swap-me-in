@@ -101,6 +101,36 @@ class TestExtractResultUrl(unittest.TestCase):
                          "https://media.x/out.mp4")
 
 
+class _StubClient:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+
+    def call(self, tool, args, timeout=90):
+        self.calls.append((tool, args))
+        return self.responses.pop(0)
+
+
+class TestGenerateVideoPresetDecline(unittest.TestCase):
+    def test_declines_preset_recommendation_and_retries(self):
+        from app.higgsfield import _generate_video
+        notice = ({"notice": {"type": "preset_recommendation", "data": {
+            "retry_literal_with": {"declined_preset_id": "preset-123"}}}}, "")
+        success = ({"job_id": "a" * 36}, "submitted")
+        stub = _StubClient([notice, success])
+        structured, _ = _generate_video(stub, {"model": "m", "prompt": "p"})
+        self.assertEqual(structured, {"job_id": "a" * 36})
+        self.assertEqual(len(stub.calls), 2)
+        self.assertEqual(stub.calls[1][1]["params"]["declined_preset_id"],
+                         "preset-123")
+
+    def test_no_notice_means_single_call(self):
+        from app.higgsfield import _generate_video
+        stub = _StubClient([({"job_id": "b" * 36}, "ok")])
+        _generate_video(stub, {"model": "m", "prompt": "p"})
+        self.assertEqual(len(stub.calls), 1)
+
+
 class TestClassifyToolError(unittest.TestCase):
     def test_credit_errors_are_fatal(self):
         for text in ["Insufficient credits", "not enough CREDITS left",

@@ -30,9 +30,10 @@ def _progress(job_id):
     return progress
 
 
-def _run_start(job_id, url):
+def _run_start(job_id, url, engine):
     try:
         info = pipeline.start_job(job_id, url, _progress(job_id))
+        info["engine"] = engine
         if info["needs_selection"]:
             with _jobs_lock:
                 _job_files[job_id] = info
@@ -62,7 +63,7 @@ def _run_finish(job_id, info, start, length=None):
 def _finish(job_id, info, start, length=None):
     out_path = pipeline.finish_job(
         job_id, info["path"], info["duration"], start, _progress(job_id),
-        length=length)
+        length=length, engine=info.get("engine") or "kling")
     _set_job(job_id, status="done", step="done",
              detail="Your reel is ready!",
              resultUrl="/output/%s" % os.path.basename(out_path))
@@ -151,14 +152,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def _post_replicate(self, data):
+        from app import higgsfield
         try:
             url = pipeline.validate_reel_url(data.get("reelUrl"))
         except pipeline.PipelineError as exc:
             self._json(400, {"error": str(exc)})
             return
+        engine = data.get("engine") or "kling"
+        if engine not in higgsfield.SWAP_ENGINES:
+            self._json(400, {"error": "Unknown swap engine."})
+            return
         job_id = uuid.uuid4().hex[:12]
         _set_job(job_id, status="running", step="starting", detail="Starting…")
-        threading.Thread(target=_run_start, args=(job_id, url),
+        threading.Thread(target=_run_start, args=(job_id, url, engine),
                          daemon=True).start()
         self._json(202, {"jobId": job_id})
 
