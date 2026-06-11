@@ -118,7 +118,7 @@
   <div id="gallery" hidden>
     <div class="lbl">Your photos</div>
     <div id="thumbs"></div>
-    <p class="hint">MAIN drives the Higgsfield character reference — click it to replace it, or ★ an extra to promote it (the reference regenerates on the next run, 1 credit). All photos feed face restore; varied angles &amp; lighting help most.</p>
+    <p class="hint" id="photoHint">MAIN drives the Higgsfield character reference — click it to replace it, or ★ an extra to promote it (the reference regenerates on the next run, 1 credit). All photos feed face restore; varied angles &amp; lighting help most.</p>
     <div id="tuning" hidden>
       <div class="lbl">Face enhancement <span class="val" id="blendVal"></span></div>
       <input id="blend" type="range" min="0" max="100" step="5">
@@ -174,6 +174,8 @@ const galleryToggle = document.getElementById("galleryToggle"),
       swapperSel = document.getElementById("swapperSel"), enhancerSel = document.getElementById("enhancerSel"),
       savedNote = document.getElementById("savedNote"),
       addInput = document.getElementById("addInput"), mainInput = document.getElementById("mainInput");
+const photoHint = document.getElementById("photoHint");
+const PHOTO_HINT_BASE = "MAIN drives the Higgsfield character reference — click it to replace it, or ★ an extra to promote it (the reference regenerates on the next run, 1 credit). All photos feed face restore; varied angles & lighting help most.";
 const BOOSTS = ["256x256", "512x512", "768x768", "1024x1024"];
 const BOOST_LABELS = { "256x256": "Fast 256", "512x512": "Standard 512",
                        "768x768": "High 768", "1024x1024": "Max 1024" };
@@ -198,6 +200,7 @@ async function refreshStatus() {
       ? `Higgsfield connected ✓ (${s.source === "app" ? "in-app login" : "via Claude Code"}) · photo saved ✓`
       : "";
     restoreRow.hidden = !s.faceRestore;
+    photoHint.textContent = PHOTO_HINT_BASE + (s.faceRestore ? "" : " Face restore isn't installed (./setup.sh --face-restore), so extras have no effect yet.");
     galleryToggle.hidden = !ready;
     tuning.hidden = !s.faceRestore;
     if (ready) {
@@ -266,14 +269,14 @@ function renderThumbs(list) {
         if (!confirm("Make this the main photo? The character reference regenerates on the next run (1 credit).")) return;
         star.disabled = true;
         try { renderThumbs((await api(`/api/photos/${encodeURIComponent(p.name)}/promote`, { method: "POST" })).photos); }
-        catch (err) { setStatus(err.message, { error: true }); }
+        catch (err) { setStatus(err.message, { error: true }); loadGallery(); }
       };
       const x = document.createElement("button");
       x.className = "x"; x.textContent = "×"; x.title = "Remove";
       x.onclick = async () => {
         x.disabled = true;
         try { renderThumbs((await api(`/api/photos/${encodeURIComponent(p.name)}/delete`, { method: "POST" })).photos); }
-        catch (err) { setStatus(err.message, { error: true }); }
+        catch (err) { setStatus(err.message, { error: true }); loadGallery(); }
       };
       th.appendChild(star); th.appendChild(x);
     }

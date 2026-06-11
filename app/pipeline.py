@@ -241,9 +241,9 @@ def restore_faces(raw_path, job_id, progress):
 
     restored = os.path.join(OUTPUT_DIR, "%s-restored.mp4" % job_id)
     try:
-        photos = face_restore.source_photos(user_photo())
+        sources = face_restore.source_photos(user_photo())
         return face_restore.restore(
-            raw_path, restored, photos,
+            raw_path, restored, sources,
             progress=lambda detail: progress("restoring", detail))
     except Exception as exc:
         progress("warning",

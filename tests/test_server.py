@@ -1,4 +1,8 @@
+import threading
 import unittest
+import urllib.error
+import urllib.request
+from http.server import ThreadingHTTPServer
 
 from app.server import origin_allowed
 from app import server
@@ -55,6 +59,45 @@ class TestPhotoRoutes(unittest.TestCase):
         self.assertEqual(server._upload_role("/api/photos?role=extra"),
                          "extra")
         self.assertIsNone(server._upload_role("/api/photos?role=banana"))
+
+
+def _can_bind():
+    import socket
+    try:
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        s.close()
+        return True
+    except OSError:
+        return False
+
+
+@unittest.skipUnless(_can_bind(), "sandbox blocks socket binding")
+class Test404LogMessage(unittest.TestCase):
+    """send_error passes an int as args[0]; log_message must not crash."""
+
+    def setUp(self):
+        # Bind to port 0 so the OS assigns a free ephemeral port.
+        self._srv = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        self._port = self._srv.server_address[1]
+        t = threading.Thread(target=self._srv.serve_forever, daemon=True)
+        t.start()
+
+    def tearDown(self):
+        self._srv.shutdown()
+
+    def test_photo_404_returns_http_response_not_dropped_connection(self):
+        """GET /api/photos/nope.jpg must return HTTP 404, not a dropped conn.
+
+        Before the fix, log_message did `"/api/jobs/" not in args[0]` where
+        args[0] is an int (the status code passed by send_error → log_error),
+        raising TypeError and dropping the connection without sending any
+        response.  urllib raises HTTPError(404) on a proper 404; it raises
+        URLError / RemoteDisconnected when the connection is dropped."""
+        url = "http://127.0.0.1:%d/api/photos/nope.jpg" % self._port
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(url)
+        self.assertEqual(ctx.exception.code, 404)
 
 
 if __name__ == "__main__":

@@ -310,6 +310,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, face_restore.save_settings(data))
         except ValueError as exc:
             self._json(400, {"error": str(exc)})
+        except OSError:
+            self._json(500, {"error": "Couldn't write the settings file."})
 
     def _post_replicate(self, data):
         from app import higgsfield
@@ -351,7 +353,7 @@ class Handler(BaseHTTPRequestHandler):
         self._json(202, {"jobId": job_id, "start": start, "length": length})
 
     def log_message(self, fmt, *args):  # keep the console quiet while polling
-        if "/api/jobs/" not in (args[0] if args else ""):
+        if "/api/jobs/" not in (str(args[0]) if args else ""):
             BaseHTTPRequestHandler.log_message(self, fmt, *args)
 
 

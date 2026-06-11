@@ -102,7 +102,10 @@ def save_main(data, ext):
     for old in MAIN_EXTS:
         old_path = os.path.join(ASSETS_DIR, "me." + old)
         if old_path != target and os.path.exists(old_path):
-            os.remove(old_path)
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
     return target
 
 
