@@ -8,16 +8,19 @@ import subprocess
 import urllib.parse
 import urllib.request
 
+from app import photos
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN_DIR = os.path.join(ROOT, "bin")
 YTDLP = os.path.join(BIN_DIR, "yt-dlp")
 FFMPEG = os.path.join(BIN_DIR, "ffmpeg")
-def user_photo():
-    """Path of the stored user photo (me.jpg/jpeg/png), or None."""
-    from app import photos
-    return photos.main_photo()
 WORK_DIR = os.path.join(ROOT, "work")
 OUTPUT_DIR = os.path.join(ROOT, "output")
+
+
+def user_photo():
+    """Path of the stored user photo (me.jpg/jpeg/png), or None."""
+    return photos.main_photo()
 
 MIN_SECONDS = 5.0   # Higgsfield Recast accepts 5-15s clips
 MAX_SECONDS = 15.0

@@ -10,3 +10,4 @@ __pycache__/
 .higgsfield-credentials.json
 vendor/
 .superpowers/
+.claude/launch.json
