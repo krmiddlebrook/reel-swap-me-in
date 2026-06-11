@@ -96,6 +96,48 @@ def find_media_url(obj, extensions):
     return None
 
 
+_INPUT_KEYS = ("params", "request", "inputs", "input")
+_RESULT_KEYS = ("results", "result", "output", "outputs")
+
+
+def _result_subtrees(obj):
+    """Yield values stored under result-ish keys, at any depth."""
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if key.lower() in _RESULT_KEYS:
+                yield value
+            else:
+                for subtree in _result_subtrees(value):
+                    yield subtree
+    elif isinstance(obj, (list, tuple)):
+        for item in obj:
+            for subtree in _result_subtrees(item):
+                yield subtree
+
+
+def _strip_inputs(obj):
+    """Copy of the payload with params/inputs subtrees removed at any depth
+    (input media URLs share the same file extensions as results)."""
+    if isinstance(obj, dict):
+        return {k: _strip_inputs(v) for k, v in obj.items()
+                if k.lower() not in _INPUT_KEYS}
+    if isinstance(obj, (list, tuple)):
+        return [_strip_inputs(v) for v in obj]
+    return obj
+
+
+def extract_result_url(payload, extensions):
+    """Find the GENERATED media URL in a job payload — never an input's.
+
+    job_status wraps the job in a "generation" envelope, so result subtrees
+    are located recursively, then a depth-stripped scan is the fallback."""
+    for subtree in _result_subtrees(payload):
+        url = find_media_url(subtree, extensions)
+        if url:
+            return url
+    return find_media_url(_strip_inputs(payload), extensions)
+
+
 def classify_tool_error(text):
     """True when the error is fatal (fallback can't help): credits or auth."""
     text = (text or "").lower()
@@ -296,7 +338,7 @@ def wait_for_job(client, job_id, extensions, progress=None):
         blob = json.dumps(structured).lower()
         status = str(structured.get("status", "")).lower()
         if status in ("completed", "succeeded", "success") or '"status": "completed"' in blob:
-            url = find_media_url(structured, extensions)
+            url = extract_result_url(structured, extensions)
             if url:
                 return url
             raise HiggsfieldError(
