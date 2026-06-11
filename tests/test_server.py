@@ -40,6 +40,15 @@ class TestPhotoRoutes(unittest.TestCase):
         self.assertIsNone(server._PHOTO_FILE.match("/api/photos/"))
         self.assertIsNone(server._PHOTO_FILE.match("/api/photos/a/b"))
 
+    def test_file_route_with_query_string_via_base_path(self):
+        # do_GET must match routes against the query-stripped path: the
+        # gallery requests /api/photos/<name>?t=<ts> as a cache-buster.
+        raw = "/api/photos/me.jpg?t=123"
+        self.assertIsNone(server._PHOTO_FILE.match(raw))  # regex alone fails
+        base = raw.split("?", 1)[0]
+        match = server._PHOTO_FILE.match(base)
+        self.assertEqual(match.group(1), "me.jpg")
+
     def test_upload_role_parsing(self):
         self.assertEqual(server._upload_role("/api/photos"), "extra")
         self.assertEqual(server._upload_role("/api/photos?role=main"), "main")

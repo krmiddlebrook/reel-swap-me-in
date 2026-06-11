@@ -154,18 +154,19 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        base = self.path.split("?", 1)[0]
         if self.path.startswith("/api/") and not self._origin_ok():
             return
         work_match = _WORK_PATH.match(self.path)
-        photo_match = _PHOTO_FILE.match(self.path)
+        photo_match = _PHOTO_FILE.match(base)
         if self.path in ("/", "/index.html"):
             self._file(os.path.join(PUBLIC_DIR, "index.html"),
                        "text/html; charset=utf-8")
         elif self.path == "/api/status":
             self._json(200, _status())
-        elif self.path == "/api/photos":
+        elif base == "/api/photos":
             self._json(200, {"photos": photos.list_photos()})
-        elif self.path == "/api/settings":
+        elif base == "/api/settings":
             self._json(200, face_restore.load_settings())
         elif photo_match:
             path = photos.photo_path(
