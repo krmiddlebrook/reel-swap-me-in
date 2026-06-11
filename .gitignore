@@ -3,8 +3,11 @@ work/
 output/
 assets/me.*
 assets/faces/
+assets/face-restore-settings.json
 assets/character-sheet.*
 __pycache__/
 *.pyc
 .higgsfield-credentials.json
 vendor/
+.superpowers/
+.claude/launch.json

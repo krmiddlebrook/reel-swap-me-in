@@ -63,13 +63,17 @@ dependencies inside `vendor/` (your system Python is untouched; models
 download on first use). When installed, the page shows a **"Restore my
 face after the swap"** checkbox, on by default.
 
-Likeness improves further with **extra face photos**: click *Add face
-photos* under the engine picker and add 2–8 more shots — varied angles,
-expressions, and lighting help most. FaceFusion averages the identity
-embedding across all photos, which cancels out single-photo quirks.
-Extras live in `assets/faces/` (gitignored) and only feed the local face
-restore; the Higgsfield character reference still comes from your main
-photo.
+Likeness improves further with **extra face photos**: open **Photos &
+tuning** under the engine picker and click **+** to add 2–8 more shots —
+varied angles, expressions, and lighting help most. FaceFusion averages
+the identity embedding across all photos, which cancels out single-photo
+quirks. The same card shows which photo is **MAIN** (it drives the
+Higgsfield character reference; promoting or replacing it regenerates the
+reference on the next run, 1 credit) and exposes the tuning dials: face
+enhancement strength, detail quality, and — under Advanced — the swapper
+and enhancer models. Settings persist in
+`assets/face-restore-settings.json` (gitignored) and apply to every
+future swap.
 
 If the restore pass ever fails, the job still succeeds with the
 unrestored video and a warning — the credits spent on the swap are never

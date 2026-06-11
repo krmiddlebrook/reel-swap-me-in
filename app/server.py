@@ -7,7 +7,7 @@ import urllib.parse
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from app import face_restore, oauth, pipeline
+from app import face_restore, oauth, photos, pipeline
 
 PORT = 8787
 PUBLIC_DIR = os.path.join(pipeline.ROOT, "public")
@@ -19,6 +19,15 @@ _jobs_lock = threading.Lock()
 
 _CLIP_PATH = re.compile(r"^/api/jobs/([0-9a-f]{12})/clip$")
 _WORK_PATH = re.compile(r"^/work/([0-9a-f]{12})/reel\.mp4$")
+_PHOTO_FILE = re.compile(r"^/api/photos/([^/?]+)$")
+_PHOTO_ACTION = re.compile(r"^/api/photos/([^/?]+)/(promote|delete)$")
+
+
+def _upload_role(path):
+    """Role for POST /api/photos[?role=...]; None when the role is invalid."""
+    query = urllib.parse.urlparse(path).query
+    role = (urllib.parse.parse_qs(query).get("role") or ["extra"])[0]
+    return role if role in ("main", "extra") else None
 
 
 def origin_allowed(origin):
@@ -42,7 +51,7 @@ def _status():
     return {"connected": connected, "source": source,
             "photo": bool(pipeline.user_photo()),
             "faceRestore": face_restore.available(),
-            "extraFaces": len(face_restore.extra_photos())}
+            "extraFaces": len(photos.extra_photos())}
 
 
 def _set_job(job_id, **fields):
@@ -145,14 +154,29 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        base = self.path.split("?", 1)[0]
         if self.path.startswith("/api/") and not self._origin_ok():
             return
         work_match = _WORK_PATH.match(self.path)
+        photo_match = _PHOTO_FILE.match(base)
         if self.path in ("/", "/index.html"):
             self._file(os.path.join(PUBLIC_DIR, "index.html"),
                        "text/html; charset=utf-8")
         elif self.path == "/api/status":
             self._json(200, _status())
+        elif base == "/api/photos":
+            self._json(200, {"photos": photos.list_photos()})
+        elif base == "/api/settings":
+            self._json(200, face_restore.load_settings())
+        elif photo_match:
+            path = photos.photo_path(
+                urllib.parse.unquote(photo_match.group(1)))
+            if path:
+                ctype = ("image/png" if path.lower().endswith(".png")
+                         else "image/jpeg")
+                self._file(path, ctype)
+            else:
+                self.send_error(404)
         elif self.path.startswith("/oauth/callback"):
             self._get_oauth_callback()
         elif self.path.startswith("/api/jobs/"):
@@ -181,14 +205,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._origin_ok():
             return
-        if self.path == "/api/photo":
-            self._post_photo()
-            return
-        if self.path == "/api/faces":
-            self._post_face()
-            return
-        if self.path == "/api/faces/clear":
-            self._post_faces_clear()
+        if self.path.split("?")[0].startswith("/api/photos"):
+            self._post_photos()
             return
         if self.path == "/api/auth/start":
             self._post_auth_start()
@@ -205,6 +223,8 @@ class Handler(BaseHTTPRequestHandler):
             self._post_clip(clip_match.group(1), data)
         elif self.path == "/api/replicate":
             self._post_replicate(data)
+        elif self.path == "/api/settings":
+            self._post_settings(data)
         else:
             self.send_error(404)
 
@@ -241,56 +261,57 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _post_photo(self):
-        length = int(self.headers.get("Content-Length") or 0)
-        if length <= 0 or length > 20 * 1024 * 1024:
-            self._json(400, {"error": "Photo must be a file under 20 MB."})
-            return
-        data = self.rfile.read(length)
-        ext = pipeline.detect_image_ext(data)
-        if not ext:
-            self._json(400, {"error": "Please upload a JPEG or PNG photo."})
-            return
-        assets = os.path.join(pipeline.ROOT, "assets")
-        os.makedirs(assets, exist_ok=True)
-        for old in ("me.jpg", "me.jpeg", "me.png"):
-            old_path = os.path.join(assets, old)
-            if os.path.exists(old_path):
-                os.remove(old_path)
-        with open(os.path.join(assets, "me" + ext), "wb") as fh:
-            fh.write(data)
-        self._json(200, {"ok": True})
-
-    def _post_face(self):
-        """Store one extra face photo (improves face-restore likeness)."""
-        length = int(self.headers.get("Content-Length") or 0)
-        if length <= 0 or length > 20 * 1024 * 1024:
-            self._json(400, {"error": "Photo must be a file under 20 MB."})
-            return
-        data = self.rfile.read(length)
-        ext = pipeline.detect_image_ext(data)
-        if not ext:
-            self._json(400, {"error": "Please upload a JPEG or PNG photo."})
-            return
-        if len(face_restore.extra_photos()) >= face_restore.MAX_EXTRA_PHOTOS:
-            self._json(400, {"error": "That's plenty — %d extra photos max."
-                                      % face_restore.MAX_EXTRA_PHOTOS})
-            return
-        os.makedirs(face_restore.FACES_DIR, exist_ok=True)
-        name = "face-%s%s" % (uuid.uuid4().hex[:8], ext)
-        with open(os.path.join(face_restore.FACES_DIR, name), "wb") as fh:
-            fh.write(data)
-        self._json(200, {"ok": True,
-                         "extraFaces": len(face_restore.extra_photos())})
-
-    def _post_faces_clear(self):
-        for path in face_restore.extra_photos():
+    def _post_photos(self):
+        action = _PHOTO_ACTION.match(self.path)
+        if action:
+            name = urllib.parse.unquote(action.group(1))
             try:
-                os.remove(path)
-            except OSError:
-                pass  # already gone (e.g. concurrent clear)
-        self._json(200, {"ok": True,
-                         "extraFaces": len(face_restore.extra_photos())})
+                if action.group(2) == "promote":
+                    photos.promote(name)
+                else:
+                    photos.delete_extra(name)
+            except photos.PhotoError as exc:
+                self._json(exc.status, {"error": str(exc)})
+                return
+            self._json(200, {"ok": True, "photos": photos.list_photos()})
+            return
+        if self.path.split("?")[0] != "/api/photos":
+            self.send_error(404)  # e.g. /api/photos/<name>/rename
+            return
+        role = _upload_role(self.path)
+        if role is None:
+            self._json(400, {"error": "Unknown photo role."})
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > 20 * 1024 * 1024:
+            self._json(400, {"error": "Photo must be a file under 20 MB."})
+            return
+        data = self.rfile.read(length)
+        ext = pipeline.detect_image_ext(data)
+        if not ext:
+            self._json(400, {"error": "Please upload a JPEG or PNG photo."})
+            return
+        if role == "extra" and len(photos.extra_photos()) >= photos.MAX_EXTRAS:
+            self._json(400, {"error": "That's plenty — %d extra photos max."
+                                      % photos.MAX_EXTRAS})
+            return
+        try:
+            if role == "main":
+                photos.save_main(data, ext)
+            else:
+                photos.save_extra(data, ext)
+        except photos.PhotoError as exc:
+            self._json(exc.status, {"error": str(exc)})
+            return
+        self._json(200, {"ok": True, "photos": photos.list_photos()})
+
+    def _post_settings(self, data):
+        try:
+            self._json(200, face_restore.save_settings(data))
+        except ValueError as exc:
+            self._json(400, {"error": str(exc)})
+        except OSError:
+            self._json(500, {"error": "Couldn't write the settings file."})
 
     def _post_replicate(self, data):
         from app import higgsfield
@@ -332,7 +353,7 @@ class Handler(BaseHTTPRequestHandler):
         self._json(202, {"jobId": job_id, "start": start, "length": length})
 
     def log_message(self, fmt, *args):  # keep the console quiet while polling
-        if "/api/jobs/" not in (args[0] if args else ""):
+        if "/api/jobs/" not in (str(args[0]) if args else ""):
             BaseHTTPRequestHandler.log_message(self, fmt, *args)
 
 

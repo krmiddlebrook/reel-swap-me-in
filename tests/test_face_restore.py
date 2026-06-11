@@ -1,13 +1,17 @@
+import json
+import os
+import tempfile
 import unittest
 from unittest import mock
 
-from app import face_restore
+from app import face_restore, photos
 
 
 class TestBuildCommand(unittest.TestCase):
     def test_sources_target_output(self):
         cmd = face_restore.build_command(
-            ["a.jpg", "b.png"], "in.mp4", "out.mp4", "cpu")
+            ["a.jpg", "b.png"], "in.mp4", "out.mp4", "cpu",
+            face_restore.DEFAULT_SETTINGS)
         self.assertEqual(cmd[2], "headless-run")
         i = cmd.index("-s")
         self.assertEqual(cmd[i + 1:i + 3], ["a.jpg", "b.png"])
@@ -16,13 +20,28 @@ class TestBuildCommand(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--execution-providers") + 1], "cpu")
 
     def test_swap_and_enhance_processors(self):
-        cmd = face_restore.build_command(["a.jpg"], "t", "o", "coreml")
+        cmd = face_restore.build_command(["a.jpg"], "t", "o", "coreml",
+                                         face_restore.DEFAULT_SETTINGS)
         i = cmd.index("--processors")
         self.assertEqual(cmd[i + 1:i + 3], ["face_swapper", "face_enhancer"])
 
     def test_aac_audio_for_player_compatibility(self):
-        cmd = face_restore.build_command(["a.jpg"], "t", "o", "cpu")
+        cmd = face_restore.build_command(["a.jpg"], "t", "o", "cpu",
+                                         face_restore.DEFAULT_SETTINGS)
         self.assertEqual(cmd[cmd.index("--output-audio-encoder") + 1], "aac")
+
+    def test_settings_reach_the_command(self):
+        settings = {"enhancer_blend": 35, "pixel_boost": "768x768",
+                    "swapper_model": "inswapper_128_fp16",
+                    "enhancer_model": "codeformer"}
+        cmd = face_restore.build_command(["a.jpg"], "t", "o", "cpu", settings)
+        self.assertEqual(cmd[cmd.index("--face-swapper-model") + 1],
+                         "inswapper_128_fp16")
+        self.assertEqual(cmd[cmd.index("--face-swapper-pixel-boost") + 1],
+                         "768x768")
+        self.assertEqual(cmd[cmd.index("--face-enhancer-model") + 1],
+                         "codeformer")
+        self.assertEqual(cmd[cmd.index("--face-enhancer-blend") + 1], "35")
 
 
 class TestProviders(unittest.TestCase):
@@ -38,13 +57,13 @@ class TestProviders(unittest.TestCase):
 
 class TestSourcePhotos(unittest.TestCase):
     def test_primary_first_then_extras(self):
-        with mock.patch.object(face_restore, "extra_photos",
+        with mock.patch.object(photos, "extra_photos",
                                return_value=["x/a.jpg", "x/b.jpg"]):
             self.assertEqual(face_restore.source_photos("me.jpg"),
                              ["me.jpg", "x/a.jpg", "x/b.jpg"])
 
     def test_primary_not_duplicated(self):
-        with mock.patch.object(face_restore, "extra_photos",
+        with mock.patch.object(photos, "extra_photos",
                                return_value=["me.jpg", "x/a.jpg"]):
             self.assertEqual(face_restore.source_photos("me.jpg"),
                              ["me.jpg", "x/a.jpg"])
@@ -144,6 +163,78 @@ class TestLastLine(unittest.TestCase):
 
     def test_empty(self):
         self.assertEqual(face_restore._last_line(None), "")
+
+
+class SettingsCase(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._patch = mock.patch.object(
+            face_restore, "SETTINGS_PATH",
+            os.path.join(self._tmp.name, "settings.json"))
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        self._tmp.cleanup()
+
+
+class TestLoadSettings(SettingsCase):
+    def test_missing_file_returns_defaults(self):
+        self.assertEqual(face_restore.load_settings(),
+                         face_restore.DEFAULT_SETTINGS)
+
+    def test_corrupt_file_returns_defaults(self):
+        with open(face_restore.SETTINGS_PATH, "w") as fh:
+            fh.write("{nope")
+        self.assertEqual(face_restore.load_settings(),
+                         face_restore.DEFAULT_SETTINGS)
+
+    def test_partial_file_merges_over_defaults(self):
+        with open(face_restore.SETTINGS_PATH, "w") as fh:
+            json.dump({"enhancer_blend": 40, "junk": 1}, fh)
+        settings = face_restore.load_settings()
+        self.assertEqual(settings["enhancer_blend"], 40)
+        self.assertEqual(settings["pixel_boost"],
+                         face_restore.DEFAULT_SETTINGS["pixel_boost"])
+        self.assertNotIn("junk", settings)
+
+
+class TestSaveSettings(SettingsCase):
+    def test_round_trip(self):
+        face_restore.save_settings({"pixel_boost": "768x768"})
+        self.assertEqual(face_restore.load_settings()["pixel_boost"],
+                         "768x768")
+
+    def test_invalid_values_rejected(self):
+        for bad in ({"enhancer_blend": 101}, {"enhancer_blend": "80"},
+                    {"enhancer_blend": True}, {"pixel_boost": "640x640"},
+                    {"swapper_model": "deepfacelab"},
+                    {"enhancer_model": "instagram_filter"}, ["not", "a", "dict"]):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    face_restore.save_settings(bad)
+
+    def test_blend_boundaries_accepted(self):
+        face_restore.save_settings({"enhancer_blend": 0})
+        self.assertEqual(face_restore.load_settings()["enhancer_blend"], 0)
+        face_restore.save_settings({"enhancer_blend": 100})
+        self.assertEqual(face_restore.load_settings()["enhancer_blend"], 100)
+
+    def test_atomic_write_no_tmp_leftover(self):
+        face_restore.save_settings({"enhancer_blend": 42})
+        self.assertFalse(
+            os.path.exists(face_restore.SETTINGS_PATH + ".tmp"))
+
+    def test_unknown_keys_ignored(self):
+        saved = face_restore.save_settings({"junk": 1})
+        self.assertNotIn("junk", saved)
+
+
+class TestBuildCommandFallback(SettingsCase):
+    def test_no_settings_arg_reads_from_file(self):
+        face_restore.save_settings({"pixel_boost": "768x768"})
+        cmd = face_restore.build_command(["a.jpg"], "t", "o", "cpu")
+        self.assertIn("768x768", cmd)
 
 
 if __name__ == "__main__":
