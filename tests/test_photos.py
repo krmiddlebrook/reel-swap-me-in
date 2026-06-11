@@ -108,5 +108,56 @@ class TestDelete(PhotoDirCase):
         self.assertEqual(ctx.exception.status, 400)
 
 
+class TestPromote(PhotoDirCase):
+    def test_promote_swaps_roles(self):
+        self.write(self.assets, "me.jpg", b"old-main")
+        extra = self.write(self.faces, "face-aa.png", b"new-main")
+        new_main = photos.promote("face-aa.png")
+        self.assertEqual(os.path.basename(new_main), "me.png")
+        with open(new_main, "rb") as fh:
+            self.assertEqual(fh.read(), b"new-main")
+        self.assertFalse(os.path.exists(extra))
+        # the old main is preserved as an extra
+        contents = []
+        for path in photos.extra_photos():
+            with open(path, "rb") as fh:
+                contents.append(fh.read())
+        self.assertIn(b"old-main", contents)
+
+    def test_promote_bumps_mtime_for_sheet_cache(self):
+        self.write(self.assets, "me.jpg")
+        extra = self.write(self.faces, "face-aa.jpg")
+        ancient = 1000000000
+        os.utime(extra, (ancient, ancient))
+        new_main = photos.promote("face-aa.jpg")
+        self.assertGreater(os.path.getmtime(new_main), ancient)
+
+    def test_promote_rolls_back_when_second_move_fails(self):
+        self.write(self.assets, "me.jpg", b"old-main")
+        self.write(self.faces, "face-aa.jpg")
+        real_replace = os.replace
+        calls = []
+
+        def flaky_replace(src, dst):
+            calls.append(src)
+            if len(calls) == 2:
+                raise OSError("disk full")
+            real_replace(src, dst)
+
+        with mock.patch.object(photos.os, "replace",
+                               side_effect=flaky_replace):
+            with self.assertRaises(photos.PhotoError):
+                photos.promote("face-aa.jpg")
+        self.assertEqual(os.path.basename(photos.main_photo()), "me.jpg")
+
+    def test_promote_guards(self):
+        with self.assertRaises(photos.PhotoError) as ctx:
+            photos.promote("nope.jpg")
+        self.assertEqual(ctx.exception.status, 404)
+        self.write(self.assets, "me.jpg")
+        with self.assertRaises(photos.PhotoError):
+            photos.promote("me.jpg")  # already main
+
+
 if __name__ == "__main__":
     unittest.main()
