@@ -94,12 +94,14 @@ tensor dtypes, which CUDA papers over with autocast (CUDA-only in
 Metal assertion (`MPSNDArrayMatrixMultiplication … different datatype`).
 Validated end-to-end by `set_image` + two click predicts on MPS (2026-06-12).
 
-- `vendor/wangp-venv/.../segment_anything/modeling/prompt_encoder.py` (3
+- `vendor/wangp-venv/.../segment_anything/modeling/prompt_encoder.py` (4
   lines; lost on **venv reinstall**): the dense-grid PE (`forward`, ~198),
-  the click-coords PE (`forward_with_coords`, ~214), and the
-  `sparse_embeddings` seed (`forward`, ~152) all hardcode fp32 — the empty
-  fp32 seed silently promotes every prompt token via `torch.cat`. All three
-  now follow the model dtype. Upstream bug in facebookresearch/segment-anything.
+  the click-coords PE (`forward_with_coords`, ~214), the `sparse_embeddings`
+  seed (`forward`, ~152), and the mask-refinement input (`_embed_masks`,
+  ~104) all hardcode fp32 — the empty fp32 seed silently promotes every
+  prompt token via `torch.cat`, and the refinement pass feeds fp32 logits
+  to the fp16 mask_downscaling conv. All four now follow the model dtype.
+  Upstream bugs in facebookresearch/segment-anything.
 - `vendor/wangp/preprocessing/matanyone/tools/base_segmenter.py`
   (`pay_attention`): the cast back after fp16 attention hardcoded bf16;
   now restores the input dtype, so the encoder works for any model dtype.
