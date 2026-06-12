@@ -85,12 +85,25 @@ remains the default).
 
 ## Local patches to the vendored engine
 
-`vendor/` is gitignored, so this hand-applied fix is lost on a re-vendor —
-reapply it (or confirm upstream fixed it) whenever `WANGP_COMMIT` changes:
+`vendor/` is gitignored, so these hand-applied fixes are lost on a re-vendor
+(`WANGP_COMMIT` bump) or a venv reinstall — reapply them, or confirm upstream
+fixed them first. Root cause across all of them: SAM's mask-decoder path mixes
+tensor dtypes, which CUDA papers over with autocast (CUDA-only in
+`BaseSegmenter.predict`); on MPS a mixed matmul either raises
+`mat1 and mat2 must have the same dtype` or hard-aborts the process with a
+Metal assertion (`MPSNDArrayMatrixMultiplication … different datatype`).
+Validated end-to-end by `set_image` + two click predicts on MPS (2026-06-12).
 
-- `vendor/wangp/preprocessing/matanyone/app.py` (~line 1220, tab-load): SAM
-  is cast to bf16 unconditionally, but `BaseSegmenter.predict` enables
-  autocast only on CUDA — so clicking a person in the Video Mask Creator
-  crashes on MPS (`mat1 and mat2 must have the same dtype: float != BFloat16`).
-  Patch: keep SAM in fp32 when `torch.backends.mps.is_available()`. Worth
-  reporting upstream (deepbeepmeep/Wan2GP).
+- `vendor/wangp-venv/.../segment_anything/modeling/prompt_encoder.py` (3
+  lines; lost on **venv reinstall**): the dense-grid PE (`forward`, ~198),
+  the click-coords PE (`forward_with_coords`, ~214), and the
+  `sparse_embeddings` seed (`forward`, ~152) all hardcode fp32 — the empty
+  fp32 seed silently promotes every prompt token via `torch.cat`. All three
+  now follow the model dtype. Upstream bug in facebookresearch/segment-anything.
+- `vendor/wangp/preprocessing/matanyone/tools/base_segmenter.py`
+  (`pay_attention`): the cast back after fp16 attention hardcoded bf16;
+  now restores the input dtype, so the encoder works for any model dtype.
+- `vendor/wangp/preprocessing/matanyone/app.py` (~1220, tab-load): SAM is
+  cast to bf16 unconditionally; bf16 attention matmuls abort in Metal on
+  macOS 15 / torch 2.12. Now fp16 on MPS (the checkpoint's native dtype).
+  Worth reporting to deepbeepmeep/Wan2GP together with the two above.

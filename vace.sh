@@ -13,6 +13,8 @@ if [ ! -x "$PY" ] || [ ! -f "$WGP/wgp.py" ]; then
   exit 1
 fi
 export PATH="$ROOT/bin:$PATH"   # vendored ffmpeg for moviepy/ffmpeg-python
+export PYTHONUNBUFFERED=1       # a Metal abort (SIGABRT) discards buffered
+                                # stdout — unbuffered keeps the crash context
 
 cmd="${1:-ui}"
 shift || true
