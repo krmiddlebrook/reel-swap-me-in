@@ -82,3 +82,15 @@ remains the default).
 - **TeaCache / MagCache** (`skip_steps_cache_type`) — skips redundant
   denoising steps, model-supported, no extra weights.
 - (lightx2v is 14B-only — not applicable here.)
+
+## Local patches to the vendored engine
+
+`vendor/` is gitignored, so this hand-applied fix is lost on a re-vendor —
+reapply it (or confirm upstream fixed it) whenever `WANGP_COMMIT` changes:
+
+- `vendor/wangp/preprocessing/matanyone/app.py` (~line 1220, tab-load): SAM
+  is cast to bf16 unconditionally, but `BaseSegmenter.predict` enables
+  autocast only on CUDA — so clicking a person in the Video Mask Creator
+  crashes on MPS (`mat1 and mat2 must have the same dtype: float != BFloat16`).
+  Patch: keep SAM in fp32 when `torch.backends.mps.is_available()`. Worth
+  reporting upstream (deepbeepmeep/Wan2GP).
