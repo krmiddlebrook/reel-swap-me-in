@@ -13,7 +13,8 @@ expect minutes per second of video, not real time.
 ```
 
 Keep generations at **480p** and **≤ 81 frames** (~5 s at 16 fps) — that's
-what the 1.3B model is trained for; enable Riflex in Advanced for up to ~7 s.
+what the 1.3B model is trained for; enable Riflex (a rotary-position extension
+for longer clips, in the model's Advanced settings) for up to ~7 s.
 
 ## Replace the person in a reel (WanGP docs/VACE.md, Example 1)
 
@@ -32,6 +33,9 @@ what the 1.3B model is trained for; enable Riflex in Advanced for up to ~7 s.
    --save-masks` to dump the generated control/mask videos for debugging.
 6. Optional but recommended: run the existing FaceFusion face-restore pass on
    the result for facial identity (it works on any video, not just API swaps).
+
+UI generations are saved under `vendor/wangp/outputs/` (the engine's own
+gallery folder); headless runs land in `output/` at the repo root.
 
 ## Repeatable / headless runs
 
