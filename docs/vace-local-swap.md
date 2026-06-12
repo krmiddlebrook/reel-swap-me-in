@@ -18,8 +18,9 @@ for longer clips, in the model's Advanced settings) for up to ~7 s.
 
 ## Replace the person in a reel (WanGP docs/VACE.md, Example 1)
 
-1. In the Vace 1.3B screen set **Control Video Process = Transfer human pose**
-   and **Area processed = Masked area**.
+1. In the Vace 1.3B screen set **Control Video Process = Transfer Human
+   Motion** (the pose-transfer option; "Aligned" variant only if your build
+   gets warped to the original person's) and **Area processed = Masked area**.
 2. Open the **Matanyone Video Mask Creator** (embedded tool), load the reel,
    click the person to build the mask, then **Export to Control Video Input
    and Video Mask Input**.

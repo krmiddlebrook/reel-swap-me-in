@@ -36,6 +36,16 @@ if [ ! -x bin/ffmpeg ]; then
   chmod +x bin/ffmpeg
 fi
 
+# ffprobe rides along with ffmpeg: the WanGP UI (Gradio video previews)
+# shells out to it and crashes at startup without it.
+FP="${FF/ffmpeg/ffprobe}"
+if [ ! -x bin/ffprobe ]; then
+  echo "Fetching ffprobe ($FP)…"
+  curl -fL -o bin/ffprobe \
+    "https://github.com/eugeneware/ffmpeg-static/releases/latest/download/$FP"
+  chmod +x bin/ffprobe
+fi
+
 # Optional: local face-restore pass (FaceFusion). Re-imposes your real face
 # onto the swapped video — the swap engines drift on facial identity.
 # ~2 GB of tooling + models, so it's opt-in: ./setup.sh --face-restore
