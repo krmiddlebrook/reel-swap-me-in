@@ -59,8 +59,10 @@ comparable — bump these only if you're re-baselining.
 
 | Date | Run | Wall time | Peak RSS | Notes |
 | ---- | --- | --------- | -------- | ----- |
-| _TBD by Task 5_ | first (incl. ~11 GB model download) | | | |
-| _TBD by Task 5_ | second (warm) | | | |
+| 2026-06-12 | first (incl. ~11 GB model download) | 26m 57s | 3.4 GB | MPS autocast dtype warning (harmless); objc dylib duplicate warning (harmless); peak unified memory footprint 14.9 GB |
+| 2026-06-12 | second (warm) | 9m 34s | 2.1 GB | Same MPS warnings; peak unified memory footprint 15.4 GB; ~48 s/step → 10 steps in 7 m 35 s |
+
+**Verdict (2026-06-12): GO — warm smoke run completed in 9m 34s (well under the 20-minute gate), producing a valid 17-frame 480x832 h264 clip at 16 fps with exit 0 on both runs.**
 
 **Go/no-go gate:** warm smoke run ≤ 20 min → proceed with the interactive
 recipe and speed tuning. Slower → try the CausVid LoRA rescue below before
