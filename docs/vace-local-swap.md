@@ -8,7 +8,7 @@ expect minutes per second of video, not real time.
 ## Install & launch
 
 ```bash
-./setup.sh --vace     # one-time: ~15 GB deps + ~11 GB weights on first gen
+./setup.sh --vace     # one-time: ~2 GB deps + ~18 GB weights on first gen
 ./vace.sh ui          # web UI at http://localhost:7860, VACE 1.3B preselected
 ```
 
@@ -59,10 +59,13 @@ comparable — bump these only if you're re-baselining.
 
 | Date | Run | Wall time | Peak RSS | Notes |
 | ---- | --- | --------- | -------- | ----- |
-| 2026-06-12 | first (incl. ~11 GB model download) | 26m 57s | 3.4 GB | MPS autocast dtype warning (harmless); objc dylib duplicate warning (harmless); peak unified memory footprint 14.9 GB |
+| 2026-06-12 | first (incl. ~18 GB model download) | 26m 57s | 3.4 GB | MPS autocast dtype warning (harmless); objc dylib duplicate warning (harmless); peak unified memory footprint 14.9 GB |
 | 2026-06-12 | second (warm) | 9m 34s | 2.1 GB | Same MPS warnings; peak unified memory footprint 15.4 GB; ~48 s/step → 10 steps in 7 m 35 s |
 
 **Verdict (2026-06-12): GO — warm smoke run completed in 9m 34s (well under the 20-minute gate), producing a valid 17-frame 480x832 h264 clip at 16 fps with exit 0 on both runs.**
+
+Note: wall time scales with frame count — a full 81-frame/20-step clip
+extrapolates to ~80 min without a speed-up LoRA; try CausVid first.
 
 **Go/no-go gate:** warm smoke run ≤ 20 min → proceed with the interactive
 recipe and speed tuning. Slower → try the CausVid LoRA rescue below before

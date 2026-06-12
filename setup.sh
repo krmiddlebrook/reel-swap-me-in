@@ -80,7 +80,7 @@ fi
 
 # Optional: local video swap engine (WanGP + VACE 1.3B on Apple Silicon).
 # Replaces a person in a reel entirely on-device — free, private, no
-# per-generation API cost. ~15 GB of Python deps now + ~11 GB of model
+# per-generation API cost. ~2 GB of Python deps now + ~18 GB of model
 # weights on first generation, so it's opt-in: ./setup.sh --vace
 VACE=0
 for arg in "$@"; do
@@ -98,7 +98,7 @@ if [ "$VACE" = "1" ]; then
     mv "vendor/Wan2GP-$WANGP_COMMIT" vendor/wangp
   fi
   [ -d vendor/wangp-venv ] || vendor/uv venv vendor/wangp-venv --python 3.11
-  echo "Installing WanGP dependencies (~15 GB, this takes a while)…"
+  echo "Installing WanGP dependencies (~2 GB venv + ~3 GB uv cache, this takes a while)…"
   vendor/uv pip install --python vendor/wangp-venv/bin/python torch torchvision torchaudio
   REQS=vendor/wangp/requirements.txt
   if [ "$OS" = "Darwin" ]; then
