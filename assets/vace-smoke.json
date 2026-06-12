@@ -1,0 +1,9 @@
+{
+  "model_type": "vace_1.3B",
+  "prompt": "A man in a blue t-shirt walks through a sunlit park toward the camera, photorealistic, steady shot",
+  "negative_prompt": "",
+  "resolution": "480x832",
+  "video_length": 17,
+  "num_inference_steps": 10,
+  "seed": 42
+}

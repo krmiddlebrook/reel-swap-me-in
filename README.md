@@ -79,6 +79,8 @@ If the restore pass ever fails, the job still succeeds with the
 unrestored video and a warning — the credits spent on the swap are never
 wasted on a local hiccup.
 
+For a free, fully local swap alternative (WanGP + VACE 1.3B), see docs/vace-local-swap.md.
+
 ## How it works
 
 ```
